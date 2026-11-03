@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,8 +15,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'valeur',
     'date_comptable',
 ])]
+#[Table('etat_stock_winparf')]
 class EtatStockWinparf extends Model
 {
+    protected $primaryKey = 'stock_winparf_id';
+
     public const MODE_AUTO = 'AUTO';
     public const MODE_REPARTI = 'REPARTI';
     public const MODE_MANUEL = 'MANUEL';
