@@ -1,0 +1,100 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+#[Fillable([
+    'periode_id',
+    'code_stock',
+    'parkod',
+    'qte_ouverture',
+    'val_ouverture',
+    'qte_in',
+    'val_in',
+    'qte_out',
+    'val_out',
+    'qte_stk',
+    'val_stk',
+    'qte_cloture',
+    'val_cloture',
+    'pamp_cloture',
+])]
+class StockMensuel extends Model
+{
+    protected $table = 'stock_mensuels';
+
+    protected function casts(): array
+    {
+        return [
+            'qte_ouverture' => 'integer',
+            'val_ouverture' => 'decimal:4',
+            'qte_in'        => 'integer',
+            'val_in'        => 'decimal:4',
+            'qte_out'       => 'integer',
+            'val_out'       => 'decimal:4',
+            'qte_stk'       => 'integer',
+            'val_stk'       => 'decimal:4',
+            'qte_cloture'   => 'integer',
+            'val_cloture'   => 'decimal:4',
+            'pamp_cloture'  => 'decimal:4',
+        ];
+    }
+
+    public function periode(): BelongsTo
+    {
+        return $this->belongsTo(Periode::class);
+    }
+
+    public function societe(): BelongsTo
+    {
+        return $this->belongsTo(Societe::class, 'code_stock', 'code_stock');
+    }
+
+    public function article(): BelongsTo
+    {
+        return $this->belongsTo(Article::class, 'parkod', 'parkod');
+    }
+
+    public function scopePourPeriode(Builder $query, int $periodeId): Builder
+    {
+        return $query->where('periode_id', $periodeId);
+    }
+
+    public function scopePourSociete(Builder $query, string $codeStock): Builder
+    {
+        return $query->where('code_stock', $codeStock);
+    }
+
+    public function scopePourArticle(Builder $query, string $parkod): Builder
+    {
+        return $query->where('parkod', $parkod);
+    }
+
+    /**
+     * Quantité de clôture théorique : ouverture + entrées - sorties + écarts d'inventaire.
+     * Les sorties (qte_out) sont supposées stockées en valeur positive ; adapte si elles sont signées.
+     */
+    public function qteClotureTheorique(): int
+    {
+        return $this->qte_ouverture + $this->qte_in - $this->qte_out + $this->qte_stk;
+    }
+
+    public function valClotureTheorique(): string
+    {
+        return bcadd(
+            bcsub(bcadd($this->val_ouverture, $this->val_in, 4), $this->val_out, 4),
+            $this->val_stk,
+            4
+        );
+    }
+
+    public function estCoherent(): bool
+    {
+        return $this->qte_cloture === $this->qteClotureTheorique()
+            && bccomp($this->val_cloture, $this->valClotureTheorique(), 4) === 0;
+    }
+}
