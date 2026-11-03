@@ -25,7 +25,7 @@ class SocieteResource extends Resource
 
     protected static ?string $model = Societe::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Phosphor::StorefrontDuotone;
+    protected static string|BackedEnum|null $navigationIcon = Phosphor::BuildingDuotone;
 
     protected static ?string $recordTitleAttribute = 'libelle';
 
