@@ -5,6 +5,8 @@ namespace App\Filament\Resources\Magasins;
 use App\Filament\Resources\Magasins\Pages\ManageMagasins;
 use App\Models\Magasin;
 use BackedEnum;
+use Filafly\Icons\Phosphor\Enums\Phosphor;
+use UnitEnum;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -21,9 +23,12 @@ use Filament\Tables\Table;
 
 class MagasinResource extends Resource
 {
+    protected static string | UnitEnum | null $navigationGroup = 'Plateforme';
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $model = Magasin::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon = Phosphor::StorefrontDuotone;
 
     protected static ?string $recordTitleAttribute = 'libelle';
 
