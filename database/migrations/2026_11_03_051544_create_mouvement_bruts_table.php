@@ -30,11 +30,6 @@ return new class extends Migration
             $table->string('id_transac', 60)->nullable();
             $table->char('hash_ligne', 64)->unique()->comment('Anti-doublon à la ré-import');
             $table->timestamps();
-
-            $table->foreign('typ_mvt')->references('type_mouvement')->on('type_mouvements');
-            $table->foreign('mag_orig')->references('mag_code')->on('magasins');
-            $table->foreign('mag_dest')->references('mag_code')->on('magasins');
-            $table->foreign('parkod')->references('parkod')->on('articles');
         });
     }
 

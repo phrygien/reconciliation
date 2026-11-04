@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'periode_id',
+    'periode',
     'code_stock',
     'parkod',
     'qte_ouverture',

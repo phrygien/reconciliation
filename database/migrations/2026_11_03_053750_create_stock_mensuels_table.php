@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('stock_mensuels', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('periode_id')->constrained('periodes');
+            $table->string('periode');
             $table->string('code_stock', 5)->comment('ADV ou COSMA');
             $table->string('parkod', 12);
 
@@ -37,8 +37,6 @@ return new class extends Migration
 
             $table->foreign('code_stock')->references('code_stock')->on('societes');
             $table->foreign('parkod')->references('parkod')->on('articles');
-
-            $table->unique(['periode_id', 'code_stock', 'parkod']);
             $table->index('parkod');
         });
     }

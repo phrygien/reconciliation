@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'qte',
     'valeur',
     'date_comptable',
+    'mouvement_brut_id'
 ])]
 #[Table('etat_stock_winparf')]
 class EtatStockWinparf extends Model

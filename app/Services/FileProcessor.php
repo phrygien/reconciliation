@@ -43,20 +43,20 @@ class FileProcessor
                 [   'periode' => $parkod,
                     'code_stock' => $code_stock,
                     'parkod' => $parkod,
-                    'qte_ouverture' => 0,   
+                    'qte_ouverture' => 0,
                     'val_ouverture' => 0,
-                    'qte_in'  => 0,          
+                    'qte_in'  => 0,
                     'val_in'  => 0,
-                    'qte_out' => 0,         
+                    'qte_out' => 0,
                     'val_out' => 0,
-                    'qte_stk' => 0,         
+                    'qte_stk' => 0,
                     'val_stk' => 0,
-                    'qte_cloture' => 0,     
+                    'qte_cloture' => 0,
                     'val_cloture' => 0,
                     'pamp_cloture' => 0
                 ] // valeurs ajoutées seulement à la création
             );
-            
+
             // retourner le stock ouvert
             return $stock;
 
@@ -65,7 +65,7 @@ class FileProcessor
         }
     }
 
-    // lecture 
+    // lecture
     public function read(string $path, string $separateur = ';'): array
     {
         $fullPath = Storage::disk('local')->path($path);
@@ -151,9 +151,9 @@ class FileProcessor
             $BATCH = ImportBatch::create([
                 'nom_fichier' => "ADV-COSMA-MVT_20261020_013122.TXT",
                 'importe_le' => now(),
-                'date_min' => collect($rows)->min('DATE_MVT'), 
+                'date_min' => collect($rows)->min('DATE_MVT'),
                 'date_max' => collect($rows)->max('DATE_MVT'),
-                'nb_lignes' => count($rows)
+                'nb_ligne' => count($rows)
             ]);
 
             foreach($rows as $row){
@@ -167,11 +167,11 @@ class FileProcessor
                     ["nom" => $row['MARQUE']]
                 );
                 $ARTICLE = Article::updateOrCreate(
-                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->marque_id],
-                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->marque_id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
                 );
 
-                //avoir stock 
+                //avoir stock
                 $STOCK = $this->findOrCreateStockMensuel($row['PARKOD'], $PERIODE_MVT, $row['SOCIETE']);
 
                 //avoir type mouvement
@@ -186,8 +186,8 @@ class FileProcessor
                     $categorie = "INVENTAIRE";
                 }
                 $MVT_TYPE = TypeMouvement::firstOrCreate(
-                    ["typ_mvt" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie], // critères de recherche
-                    ["typ_mvt" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie] // valeurs ajoutées seulement à la création
+                    ["type_mouvement" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie], // critères de recherche
+                    ["type_mouvement" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie] // valeurs ajoutées seulement à la création
                 );
 
                 //Stocker le mouvement BRUT
@@ -207,7 +207,7 @@ class FileProcessor
                 $MVT_BRUT = MouvementBrut::updateOrCreate(
                     ['hash_ligne' => $hash],          // critère d'unicité
                     [
-                        'batch_id' => $BATCH->batch_id,
+                        'batch_id' => $BATCH->id,
                         'sequence_src'  => $row['SEQUENCE'],
                         'in_out' => $row['IN_OUT'],
                         'societe_src' => $row['SOCIETE'],
@@ -222,16 +222,16 @@ class FileProcessor
                         'pamp' => $row['PAMP'],
                         'punet' => $row['PUNET'],
                         'id_transac' => $row['ID_TRANSAC'],
-                        'hash_ligne' => $hash 
+                        'hash_ligne' => $hash
                     ]
                 );
 
-                //Mouvement d'affectation ou de isolation de stock  
+                //Mouvement d'affectation ou de isolation de stock
                 if($row['IN_OUT'] == "IN" || $row['IN_OUT'] == "OUT"){
                     $MVT_AF = MouvementAffecte::updateOrCreate(
-                        ['mouvement_brut_id' =>  $MVT_BRUT->mvt_id],
+                        ['mouvement_brut_id' =>  $MVT_BRUT->id],
                         [
-                            'mouvement_brut_id' => $MVT_BRUT->mvt_id,
+                            'mouvement_brut_id' => $MVT_BRUT->id,
                             'mag_orig' => $row['MAG_ORIG'],
                             'mag_dest' => $row['MAG_DEST'],
                             'code_stock' => $row['SOCIETE'],
@@ -252,9 +252,9 @@ class FileProcessor
                 }
                 if($row['IN_OUT'] == "STK"){
                     $INV_WP = EtatStockWinparf::updateOrCreate(
-                        ['mouvement_brut_id' =>  $MVT_BRUT->mvt_id],
+                        ['mouvement_brut_id' =>  $MVT_BRUT->id],
                         [
-                            'mouvement_brut_id' => $MVT_BRUT->mvt_id,
+                            'mouvement_brut_id' => $MVT_BRUT->id,
                             'code_stock' => $row['SOCIETE'],
                             'qte' => $row['QTE'],
                             'valeur' => $row['MONTANT_IN_OUT'],
@@ -265,7 +265,7 @@ class FileProcessor
                     $STOCK->qte_stk = $row['QTE'];
                     $STOCK->val_stk = $row['MONTANT_IN_OUT'];
                 }
-                
+
                 //calcule du stock de cloture
                 $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out;
                 $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out;
@@ -286,14 +286,14 @@ class FileProcessor
             }
 
             // mettre a jour le statut du batch
-            $BATCH->statut = "SUCCESS";            
+            $BATCH->statut = "SUCCESS";
             $BATCH->save();
 
             return true;
 
         }catch(Exception $e){
-            $BATCH->statut = "FAILED";            
-            $BATCH->save();
+            //$BATCH->statut = "FAILED";
+           // $BATCH->save();
             throw $e;
         }
     }

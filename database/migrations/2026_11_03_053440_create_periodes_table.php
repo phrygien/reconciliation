@@ -12,9 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('periodes', function (Blueprint $table) {
-            $table->id();
-            $table->string('periode', 7)->unique()->comment('Format AAAA-MM, ex. 2026-09');
-            $table->enum('statut', ['OUVERTE', 'CLOTURE'])->default('OUVERTE')->comment('OUVERTE | CLOTURE');
+            $table->string('periode', 7)->primary()->comment('Format AAAA-MM, ex. 2026-09');
+            $table->string('statut', 10)->default('OUVERTE')->comment('OUVERTE | CLOTURE');
             $table->dateTime('cloture_le')->nullable()->comment('Date de clôture mensuelle');
             $table->timestamps();
 
