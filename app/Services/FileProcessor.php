@@ -273,7 +273,6 @@ class FileProcessor
                 $STOCK->save();
 
                 // mettre en touche pour recalculer le stock mensuel (dual verification/calculation)
-                $PERIODE_MVT = substr($row['DATE_MVT'], 0, 4) . '-' . substr($row['DATE_MVT'], 4, 2);
                 $touches[$row['PARKOD'] . '|' . $PERIODE_MVT . '|' . $row['SOCIETE']] = [
                     'parkod'  => $row['PARKOD'],
                     'periode' => $PERIODE_MVT,
