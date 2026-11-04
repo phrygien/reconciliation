@@ -90,116 +90,121 @@ class FileProcessor
 
     // read file mvt
     public function import_file(){
-        
-        $rows = $this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"); // ligne de fichier
+        try{
 
-        //sauvegarde du batch (exemple)
-        $BATCH = ImportBatch::create([
-            'nom_fichier' => "ADV-COSMA-MVT_20261020_013122.TXT",
-            'importe_le' => now(),
-            'date_min' => min('DATE_MVT', $rows), 
-            'date_max' => max('DATE_MVT', $rows),
-            'nb_lignes' => count($rows)
-        ]);
+            $rows = $this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"); // ligne de fichier
 
-        foreach($rows as $row){
+            //sauvegarde du batch (exemple)
+            $BATCH = ImportBatch::create([
+                'nom_fichier' => "ADV-COSMA-MVT_20261020_013122.TXT",
+                'importe_le' => now(),
+                'date_min' => min('DATE_MVT', $rows), 
+                'date_max' => max('DATE_MVT', $rows),
+                'nb_lignes' => count($rows)
+            ]);
 
-            //avoir la periode
-            $PERIODE_MVT = substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2);
+            foreach($rows as $row){
 
-            //creation marque | creation/modification article
-            $MARQUE = Marque::firstOrCreate(
-                ["nom" => $row['MARQUE']],
-                ["nom" => $row['MARQUE']]
-            );
-            $ARTICLE = Article::updateOrCreate(
-                ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->marque_id],
-                ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->marque_id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
-            );
+                //avoir la periode
+                $PERIODE_MVT = substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2);
 
-            //avoir stock 
-            $STOCK = $this->findOrCreateStockMensuel($row['PARKOD'], $PERIODE_MVT, $row['SOCIETE']);
+                //creation marque | creation/modification article
+                $MARQUE = Marque::firstOrCreate(
+                    ["nom" => $row['MARQUE']],
+                    ["nom" => $row['MARQUE']]
+                );
+                $ARTICLE = Article::updateOrCreate(
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->marque_id],
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->marque_id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                );
 
-            //avoir type mouvement
-            $categorie = "";
-            if($row['IN_OUT'] == "OUT"){
-                $categorie = "SELL_OUT";
-            }
-            if($row['IN_OUT'] == "IN"){
-                $categorie = "SELL_IN";
-            }
-            if($row['IN_OUT'] == "STK"){
-                $categorie = "INVENTAIRE";
-            }
-            $MVT_TYPE = TypeMouvement::firstOrCreate(
-                ["typ_mvt" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie], // critères de recherche
-                ["typ_mvt" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie] // valeurs ajoutées seulement à la création
-            );
+                //avoir stock 
+                $STOCK = $this->findOrCreateStockMensuel($row['PARKOD'], $PERIODE_MVT, $row['SOCIETE']);
 
-            //Stocker le mouvement BRUT
-            $hash = hash('sha256', implode('|', [
-                trim($row['SEQUENCE']),
-                trim($row['IN_OUT']),
-                trim($row['SOCIETE']),
-                trim($row['DATE_MVT']),
-                trim($row['TYP_MVT']),
-                trim($row['MAG_ORIG']),
-                trim($row['MAG_DEST']),
-                trim($row['PARKOD']),
-                number_format((float) $row['QTE'], 3, '.', ''),
-                number_format((float) $row['MONTANT_IN_OUT'], 2, '.', ''),
-                trim($row['ID_TRANSAC']),
-            ]));
-            $MVT_BRUT = MouvementBrut::updateOrCreate(
-                ['hash_ligne' => $hash],          // critère d'unicité
-                [
-                    'batch_id' => $BATCH->batch_id,
-                    'sequence_src'  => $row['SEQUENCE'],
-                    'in_out' => $row['IN_OUT'],
-                    'societe_src' => $row['SOCIETE'],
-                    'date_mvt' => $row['DATE_MVT'],
-                    'typ_mvt' => $row['TYP_MVT'],
-                    'mag_orig' => $row['MAG_ORIG'],
-                    'mag_dest' => $row['MAG_DEST'],
-                    'parkod' => $row['PARKOD'],
-                    'qte' => $row['QTE'],
-                    'montant' => $row['MONTANT_IN_OUT'],
-                    'paht' => $row['PAHT'],
-                    'pamp' => $row['PAMP'],
-                    'punet' => $row['PUNET'],
-                    'id_transac' => $row['ID_TRANSAC'],
-                    'hash_ligne' => $hash 
-                ]
-            );
+                //avoir type mouvement
+                $categorie = "";
+                if($row['IN_OUT'] == "OUT"){
+                    $categorie = "SELL_OUT";
+                }
+                if($row['IN_OUT'] == "IN"){
+                    $categorie = "SELL_IN";
+                }
+                if($row['IN_OUT'] == "STK"){
+                    $categorie = "INVENTAIRE";
+                }
+                $MVT_TYPE = TypeMouvement::firstOrCreate(
+                    ["typ_mvt" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie], // critères de recherche
+                    ["typ_mvt" => $row['TYP_MVT'], "sens" => $row['IN_OUT'], "categorie" => $categorie] // valeurs ajoutées seulement à la création
+                );
 
-            //Mouvement d'affectation ou de isolation de stock  
-            if($row['IN_OUT'] == "IN" || $row['IN_OUT'] == "OUT"){
-                $MVT_AF = MouvementAffecte::updateOrCreate(
-                    ['mouvement_brut_id' =>  $MVT_BRUT->mvt_id],
+                //Stocker le mouvement BRUT
+                $hash = hash('sha256', implode('|', [
+                    trim($row['SEQUENCE']),
+                    trim($row['IN_OUT']),
+                    trim($row['SOCIETE']),
+                    trim($row['DATE_MVT']),
+                    trim($row['TYP_MVT']),
+                    trim($row['MAG_ORIG']),
+                    trim($row['MAG_DEST']),
+                    trim($row['PARKOD']),
+                    number_format((float) $row['QTE'], 3, '.', ''),
+                    number_format((float) $row['MONTANT_IN_OUT'], 2, '.', ''),
+                    trim($row['ID_TRANSAC']),
+                ]));
+                $MVT_BRUT = MouvementBrut::updateOrCreate(
+                    ['hash_ligne' => $hash],          // critère d'unicité
                     [
-                        'mouvement_brut_id' => $MVT_BRUT->mvt_id,
+                        'batch_id' => $BATCH->batch_id,
+                        'sequence_src'  => $row['SEQUENCE'],
+                        'in_out' => $row['IN_OUT'],
+                        'societe_src' => $row['SOCIETE'],
+                        'date_mvt' => $row['DATE_MVT'],
+                        'typ_mvt' => $row['TYP_MVT'],
                         'mag_orig' => $row['MAG_ORIG'],
                         'mag_dest' => $row['MAG_DEST'],
-                        'code_stock' => $row['SOCIETE'],
+                        'parkod' => $row['PARKOD'],
                         'qte' => $row['QTE'],
-                        'valeur' => $row['MONTANT_IN_OUT'],
-                        'mode_affect' => MouvementAffecte::MODE_AUTO,
-                        'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                        'montant' => $row['MONTANT_IN_OUT'],
+                        'paht' => $row['PAHT'],
+                        'pamp' => $row['PAMP'],
+                        'punet' => $row['PUNET'],
+                        'id_transac' => $row['ID_TRANSAC'],
+                        'hash_ligne' => $hash 
                     ]
                 );
+
+                //Mouvement d'affectation ou de isolation de stock  
+                if($row['IN_OUT'] == "IN" || $row['IN_OUT'] == "OUT"){
+                    $MVT_AF = MouvementAffecte::updateOrCreate(
+                        ['mouvement_brut_id' =>  $MVT_BRUT->mvt_id],
+                        [
+                            'mouvement_brut_id' => $MVT_BRUT->mvt_id,
+                            'mag_orig' => $row['MAG_ORIG'],
+                            'mag_dest' => $row['MAG_DEST'],
+                            'code_stock' => $row['SOCIETE'],
+                            'qte' => $row['QTE'],
+                            'valeur' => $row['MONTANT_IN_OUT'],
+                            'mode_affect' => MouvementAffecte::MODE_AUTO,
+                            'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                        ]
+                    );
+                }
+                if($row['IN_OUT'] == "STK"){
+                    $INV_WP = EtatStockWinparf::updateOrCreate(
+                        ['mouvement_brut_id' =>  $MVT_BRUT->mvt_id],
+                        [
+                            'mouvement_brut_id' => $MVT_BRUT->mvt_id,
+                            'code_stock' => $row['SOCIETE'],
+                            'qte' => $row['QTE'],
+                            'valeur' => $row['MONTANT_IN_OUT'],
+                            'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                        ]
+                    );
+                }            
             }
-            if($row['IN_OUT'] == "STK"){
-                 $INV_WP = EtatStockWinparf::updateOrCreate(
-                    ['mouvement_brut_id' =>  $MVT_BRUT->mvt_id],
-                    [
-                        'mouvement_brut_id' => $MVT_BRUT->mvt_id,
-                        'code_stock' => $row['SOCIETE'],
-                        'qte' => $row['QTE'],
-                        'valeur' => $row['MONTANT_IN_OUT'],
-                        'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
-                    ]
-                );
-            }            
+
+        }catch(Exception $e){
+            throw $e;
         }
     }
 
