@@ -20,16 +20,6 @@ class EtatStockWinparf extends Model
 {
     protected $primaryKey = 'stock_winparf_id';
 
-    public const MODE_AUTO = 'AUTO';
-    public const MODE_REPARTI = 'REPARTI';
-    public const MODE_MANUEL = 'MANUEL';
-
-    public const MODES = [
-        self::MODE_AUTO,
-        self::MODE_REPARTI,
-        self::MODE_MANUEL,
-    ];
-
     protected function casts(): array
     {
         return [

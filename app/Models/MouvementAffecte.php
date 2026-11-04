@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'mouvement_brut_id',
+    'mag_orig',
+    'mag_dest',
     'code_stock',
     'qte',
     'valeur',
