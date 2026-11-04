@@ -86,6 +86,57 @@ class FileProcessor
         return $lignes;
     }
 
+    // recalculation du stock mensuel
+    protected function recalculerStockMensuel(string $parkod, string $periode, string $societe): void
+    {
+        $debutMois = $periode . '-01';
+        $finMois   = date('Y-m-t', strtotime($debutMois));
+
+        $STOCK = $this->findOrCreateStockMensuel($parkod, $periode, $societe);
+
+        $agg = MouvementAffecte::query()
+            ->join('mouvement_bruts as b', 'b.mvt_id', '=', 'mouvement_affectes.mouvement_brut_id')
+            ->where('b.parkod', $parkod)
+            ->where('mouvement_affectes.code_stock', $societe)
+            ->whereBetween('mouvement_affectes.date_comptable', [$debutMois, $finMois])
+            ->selectRaw("
+                SUM(CASE WHEN b.in_out = 'IN'  THEN mouvement_affectes.qte    ELSE 0 END) as qte_in,
+                SUM(CASE WHEN b.in_out = 'IN'  THEN mouvement_affectes.valeur ELSE 0 END) as val_in,
+                SUM(CASE WHEN b.in_out = 'OUT' THEN mouvement_affectes.qte    ELSE 0 END) as qte_out,
+                SUM(CASE WHEN b.in_out = 'OUT' THEN mouvement_affectes.valeur ELSE 0 END) as val_out
+            ")
+            ->first();
+
+        $STOCK->qte_in  = $agg->qte_in  ?? 0;
+        $STOCK->val_in  = $agg->val_in  ?? 0;
+        $STOCK->qte_out = $agg->qte_out ?? 0;
+        $STOCK->val_out = $agg->val_out ?? 0;
+
+        // dernier état Winparf du mois (instantané, pas un cumul)
+        $stk = EtatStockWinparf::query()
+            ->where('code_stock', $societe)
+            ->whereBetween('date_comptable', [$debutMois, $finMois])
+            ->whereHas('mouvementBrut', fn ($q) => $q->where('parkod', $parkod))
+            ->orderByDesc('date_comptable')
+            ->first();
+
+        $STOCK->qte_stk = $stk->qte    ?? 0;
+        $STOCK->val_stk = $stk->valeur ?? 0;
+
+        $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out;
+        $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out;
+
+        if ($STOCK->qte_cloture == 0) {
+            $STOCK->val_cloture = 0;
+        }
+
+        $STOCK->pamp_cloture = $STOCK->qte_cloture > 0
+            ? round($STOCK->val_cloture / $STOCK->qte_cloture, 4)
+            : 0;
+
+        $STOCK->save();
+    }
+
     // --------------------- //
 
     // read file mvt
@@ -94,12 +145,14 @@ class FileProcessor
 
             $rows = $this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"); // ligne de fichier
 
+            $touches = []; // variable de recalculation du stock mensuel
+
             //sauvegarde du batch (exemple)
             $BATCH = ImportBatch::create([
                 'nom_fichier' => "ADV-COSMA-MVT_20261020_013122.TXT",
                 'importe_le' => now(),
-                'date_min' => min('DATE_MVT', $rows), 
-                'date_max' => max('DATE_MVT', $rows),
+                'date_min' => collect($rows)->min('DATE_MVT'), 
+                'date_max' => collect($rows)->max('DATE_MVT'),
                 'nb_lignes' => count($rows)
             ]);
 
@@ -188,6 +241,14 @@ class FileProcessor
                             'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
                         ]
                     );
+                    // mise a jour du stock mensuel
+                    if($row['IN_OUT'] == "IN"){
+                        $STOCK->qte_in += $row['QTE'];
+                        $STOCK->val_in += $row['MONTANT_IN_OUT'];
+                    }else{
+                        $STOCK->qte_out += $row['QTE'];
+                        $STOCK->val_out += $row['MONTANT_IN_OUT'];
+                    }
                 }
                 if($row['IN_OUT'] == "STK"){
                     $INV_WP = EtatStockWinparf::updateOrCreate(
@@ -200,10 +261,40 @@ class FileProcessor
                             'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
                         ]
                     );
-                }            
+                    //mise a jour du stock mensuel (invetaire fixe sur winparf)
+                    $STOCK->qte_stk = $row['QTE'];
+                    $STOCK->val_stk = $row['MONTANT_IN_OUT'];
+                }
+                
+                //calcule du stock de cloture
+                $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out;
+                $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out;
+                $STOCK->pamp_cloture = $STOCK->qte_cloture > 0 ? round($STOCK->val_cloture / $STOCK->qte_cloture, 4) : 0;
+                $STOCK->save();
+
+                // mettre en touche pour recalculer le stock mensuel (dual verification/calculation)
+                $PERIODE_MVT = substr($row['DATE_MVT'], 0, 4) . '-' . substr($row['DATE_MVT'], 4, 2);
+                $touches[$row['PARKOD'] . '|' . $PERIODE_MVT . '|' . $row['SOCIETE']] = [
+                    'parkod'  => $row['PARKOD'],
+                    'periode' => $PERIODE_MVT,
+                    'societe' => $row['SOCIETE'],
+                ];
             }
 
+            // recalculation du stock mensuel
+            foreach ($touches as $t) {
+                $this->recalculerStockMensuel($t['parkod'], $t['periode'], $t['societe']);
+            }
+
+            // mettre a jour le statut du batch
+            $BATCH->statut = "SUCCESS";            
+            $BATCH->save();
+
+            return true;
+
         }catch(Exception $e){
+            $BATCH->statut = "FAILED";            
+            $BATCH->save();
             throw $e;
         }
     }
