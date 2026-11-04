@@ -40,7 +40,7 @@ class FileProcessor
             // chercher un stock mensuel, si il n'y a pas, il faut le creer
             $stock = StockMensuel::firstOrCreate(
                 ['parkod' => $parkod, 'periode' => $annee_mois, 'code_stock' => $code_stock],          // critères de recherche
-                [   'periode' => $parkod,
+                [   'periode' => $annee_mois,
                     'code_stock' => $code_stock,
                     'parkod' => $parkod,
                     'qte_ouverture' => 0,
