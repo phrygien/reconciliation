@@ -44,9 +44,9 @@ class StockMensuel extends Model
         ];
     }
 
-    public function periode(): BelongsTo
+    public function periodeRef(): BelongsTo
     {
-        return $this->belongsTo(Periode::class);
+        return $this->belongsTo(Periode::class, 'periode', 'periode');
     }
 
     public function societe(): BelongsTo
@@ -59,9 +59,9 @@ class StockMensuel extends Model
         return $this->belongsTo(Article::class, 'parkod', 'parkod');
     }
 
-    public function scopePourPeriode(Builder $query, int $periodeId): Builder
+    public function scopePourPeriode(Builder $query, string $periode): Builder
     {
-        return $query->where('periode_id', $periodeId);
+        return $query->where('periode', $periode);
     }
 
     public function scopePourSociete(Builder $query, string $codeStock): Builder
@@ -76,7 +76,7 @@ class StockMensuel extends Model
 
     /**
      * Quantité de clôture théorique : ouverture + entrées - sorties + écarts d'inventaire.
-     * Les sorties (qte_out) sont supposées stockées en valeur positive ; adapte si elles sont signées.
+     * Les sorties (qte_out) sont supposées stockées en valeur positive.
      */
     public function qteClotureTheorique(): int
     {

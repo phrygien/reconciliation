@@ -61,6 +61,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->plugins([
                 FilamentUiSwitcherPlugin::make()->withModeSwitcher(),
-            ]);
+            ])
+            ->databaseNotifications();
     }
 }
