@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 #[Fillable([
     'mouvement_brut_id',
@@ -66,5 +67,10 @@ class MouvementAffecte extends Model
             $debut->toDateString(),
             $debut->copy()->endOfMonth()->toDateString(),
         ]);
+    }
+
+    protected function sens(): Attribute
+    {
+        return Attribute::get(fn () => $this->qte >= 0 ? 'IN' : 'OUT');
     }
 }

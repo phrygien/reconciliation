@@ -28,6 +28,7 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->spa()
+            ->brandLogo(asset('images/logo.svg'))
             ->path('admin')
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
