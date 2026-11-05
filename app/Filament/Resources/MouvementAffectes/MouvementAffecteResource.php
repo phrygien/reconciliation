@@ -6,6 +6,8 @@ use App\Filament\Resources\MouvementAffectes\Pages\CreateMouvementAffecte;
 use App\Filament\Resources\MouvementAffectes\Pages\EditMouvementAffecte;
 use App\Filament\Resources\MouvementAffectes\Pages\ListMouvementAffectes;
 use App\Filament\Resources\MouvementAffectes\Pages\ViewMouvementAffecte;
+use App\Filament\Resources\MouvementAffectes\RelationManagers\MouvementBrutLieRelationManager;
+use App\Filament\Resources\MouvementAffectes\RelationManagers\StockMensuelsRelationManager;
 use App\Filament\Resources\MouvementAffectes\Schemas\MouvementAffecteForm;
 use App\Filament\Resources\MouvementAffectes\Schemas\MouvementAffecteInfolist;
 use App\Filament\Resources\MouvementAffectes\Tables\MouvementAffectesTable;
@@ -15,7 +17,6 @@ use Filafly\Icons\Phosphor\Enums\Phosphor;
 use UnitEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
 class MouvementAffecteResource extends Resource
@@ -47,7 +48,8 @@ class MouvementAffecteResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            MouvementBrutLieRelationManager::class,
+            StockMensuelsRelationManager::class,
         ];
     }
 

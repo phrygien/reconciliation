@@ -2,10 +2,14 @@
 
 namespace App\Filament\Resources\MouvementAffectes\Tables;
 
+use App\Filament\Exports\MouvementAffecteExporter;
 use App\Models\MouvementAffecte;
+use Filafly\Icons\Phosphor\Enums\Phosphor;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ExportAction;
+use Filament\Actions\ExportBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\Summarizers\Sum;
@@ -27,6 +31,15 @@ class MouvementAffectesTable
                 ->orderByDesc('id'))
             ->striped()
             ->persistFiltersInSession()
+            ->headerActions([
+                ExportAction::make()
+                    ->label('Exporter Excel')
+                    ->icon(Phosphor::MicrosoftExcelLogo)
+                    ->color('success')
+                    ->button()
+                    ->exporter(MouvementAffecteExporter::class)
+                    ->columnMappingColumns(2),
+            ])
             ->columns([
                 TextColumn::make('sens')
                     ->label('Sens')
@@ -156,6 +169,10 @@ class MouvementAffectesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    ExportBulkAction::make()
+                        ->label('Exporter la sélection')
+                        ->exporter(MouvementAffecteExporter::class)
+                        ->columnMappingColumns(2),
                     DeleteBulkAction::make(),
                 ]),
             ])

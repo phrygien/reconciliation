@@ -50,7 +50,6 @@ class MouvementBrutsTable
                 TextColumn::make('parkod')
                     ->label('Article')
                     ->description(fn (MouvementBrut $record) => $record->article?->description)
-                    ->weight('bold')
                     ->copyable()
                     ->searchable()
                     ->sortable(),
@@ -222,7 +221,7 @@ class MouvementBrutsTable
                         ->when($data['au'] ?? null, fn (Builder $q, $d) => $q->whereDate('date_mvt', '<=', $d))),
             ])
             ->recordActions([
-                ViewAction::make(),
+                //ViewAction::make(),
                 //EditAction::make(),
             ])
             ->toolbarActions([
