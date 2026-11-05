@@ -16,6 +16,10 @@ class Periode extends Model
     public const STATUT_OUVERTE = 'OUVERTE';
     public const STATUT_CLOTURE = 'CLOTURE';
 
+    protected $primaryKey = 'periode';
+    protected $keyType = 'string';
+    public $incrementing = false;
+
     public const STATUTS = [
         self::STATUT_OUVERTE,
         self::STATUT_CLOTURE,

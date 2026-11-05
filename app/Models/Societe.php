@@ -13,4 +13,9 @@ class Societe extends Model
     {
         return $this->hasMany(Magasin::class);
     }
+
+    public function stockMensuels(): HasMany
+    {
+        return $this->hasMany(StockMensuel::class, 'code_stock', 'code_stock');
+    }
 }
