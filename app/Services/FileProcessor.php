@@ -14,6 +14,7 @@ use App\Models\MouvementBrut;
 use App\Models\TypeMouvement;
 use App\Models\EtatStockWinparf;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Exception;
 
 class FileProcessor
@@ -33,8 +34,53 @@ class FileProcessor
 
             // chercher une periode ouvert (OBLIGE D'AVOIR UNE SEULE PERIODE OUVERT )
             $periode = Periode::where('statut', 'OUVERTE')->first();
+
             if($periode->periode != $annee_mois){
-                throw new Exception('La periode ouvert ne correspond pas a la periode du mouvement en question');
+                // verification de la date du mouvement si superieur a la periode OUVERTE
+                if($periode->periode < $annee_mois){
+                    // cloture la periode
+                    $periode->statut = "CLOTUREE";
+                    $periode->cloture_le = now();
+                    $periode->save();
+                    // calculation du stock cloturee
+                    $this->recalculerStockMensuel($parkod, $periode->periode, $code_stock);
+
+                    // avoir les stock d'ouverture de la nouvel periode
+                    $ancien_stock_mensuel = StockMensuel::where(['parkod' => $parkod, 'periode' => $periode->periode, 'code_stock' => $code_stock])->first();
+                    $qte_stock_cloture_N_min_1 = $ancien_stock_mensuel->qte_cloture;
+                    $val_stock_cloture_N_min_1 = $ancien_stock_mensuel->val_cloture;
+
+                    // creation nouveau periode
+                    $new_periode = Periode::create([
+                        'periode' => $annee_mois,
+                        'statut' => "OUVERTE"
+                    ]);
+
+                    // creation du nouveau stock mensuel
+                    $stock = StockMensuel::firstOrCreate(
+                        ['parkod' => $parkod, 'periode' => $new_periode->periode, 'code_stock' => $code_stock],          // critères de recherche
+                        [   'periode' => $new_periode->periode,
+                            'code_stock' => $code_stock,
+                            'parkod' => $parkod,
+                            'qte_ouverture' => $qte_stock_cloture_N_min_1,
+                            'val_ouverture' => $val_stock_cloture_N_min_1,
+                            'qte_in'  => 0,
+                            'val_in'  => 0,
+                            'qte_out' => 0,
+                            'val_out' => 0,
+                            'qte_stk' => 0,
+                            'val_stk' => 0,
+                            'qte_cloture' => $qte_stock_cloture_N_min_1,
+                            'val_cloture' => $val_stock_cloture_N_min_1,
+                            'pamp_cloture' => 0
+                        ] // valeurs ajoutées seulement à la création
+                    );
+
+                    return $stock;
+
+                }else{
+                    throw new Exception('La periode ouvert est superieure a la periode du mouvement en question (un mouvement anterieur)');
+                }
             }
 
             // chercher un stock mensuel, si il n'y a pas, il faut le creer
@@ -92,7 +138,26 @@ class FileProcessor
         $debutMois = $periode . '-01';
         $finMois   = date('Y-m-t', strtotime($debutMois));
 
-        $STOCK = $this->findOrCreateStockMensuel($parkod, $periode, $societe);
+        // recherche du stock de la periode donnee
+        $periode_obj = Periode::where('periode', $periode)->first();
+        $STOCK = StockMensuel::firstOrCreate(
+            ['parkod' => $parkod, 'periode' => $periode_obj->periode, 'code_stock' => $societe],
+            [   'periode' => $periode_obj->periode,
+                'code_stock' => $societe,
+                'parkod' => $parkod,
+                'qte_ouverture' => 0,
+                'val_ouverture' => 0,
+                'qte_in'  => 0,
+                'val_in'  => 0,
+                'qte_out' => 0,
+                'val_out' => 0,
+                'qte_stk' => 0,
+                'val_stk' => 0,
+                'qte_cloture' => 0,
+                'val_cloture' => 0,
+                'pamp_cloture' => 0
+            ] // valeurs ajoutées seulement à la création
+        );
 
         $agg = MouvementAffecte::query()
             ->join('mouvement_bruts as b', 'b.mvt_id', '=', 'mouvement_affectes.mouvement_brut_id')
@@ -143,7 +208,11 @@ class FileProcessor
     public function import_file(){
         try{
 
-            $rows = $this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"); // ligne de fichier
+            // trie ASC par rapport au date de mouvement
+            $rows = collect($this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"))->sortBy([
+                ['DATE_MVT', 'asc'],
+                ['SEQUENCE', 'asc'],
+            ])->values()->all(); 
 
             $touches = []; // variable de recalculation du stock mensuel
 
@@ -155,6 +224,8 @@ class FileProcessor
                 'date_max' => collect($rows)->max('DATE_MVT'),
                 'nb_ligne' => count($rows)
             ]);
+
+            DB::beginTransaction();
 
             foreach($rows as $row){
 
@@ -289,11 +360,16 @@ class FileProcessor
             $BATCH->statut = "SUCCESS";
             $BATCH->save();
 
+            DB::commit();
+
             return true;
 
         }catch(Exception $e){
-            //$BATCH->statut = "FAILED";
-           // $BATCH->save();
+            DB::rollBack();
+            //mettre failed l'importation
+            $BATCH->statut = "FAILED";
+            $BATCH->save();
+            
             throw $e;
         }
     }
