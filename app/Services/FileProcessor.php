@@ -173,11 +173,11 @@ class FileProcessor
     // --------------------- //
 
     // read file mvt
-    public function import_file(){
+    public function import_file($path){
         try{
 
             // trie ASC par rapport au date de mouvement
-            $rows = collect($this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"))->sortBy([
+            $rows = collect($this->read($path))->sortBy([
                 ['DATE_MVT', 'asc'],
                 ['SEQUENCE', 'asc'],
             ])->values()->all(); 
@@ -186,7 +186,7 @@ class FileProcessor
 
             //sauvegarde du batch (exemple)
             $BATCH = ImportBatch::create([
-                'nom_fichier' => "ADV-COSMA-MVT_20261020_013122.TXT",
+                'nom_fichier' => basename($path),
                 'importe_le' => now(),
                 'date_min' => collect($rows)->min('DATE_MVT'),
                 'date_max' => collect($rows)->max('DATE_MVT'),
@@ -334,9 +334,11 @@ class FileProcessor
 
         }catch(Exception $e){
             DB::rollBack();
-            //mettre failed l'importation
-            $BATCH->statut = "FAILED";
-            $BATCH->save();
+
+            if ($BATCH) {
+                $BATCH->statut = 'FAILED';
+                $BATCH->save();
+            }
 
             throw $e;
         }
