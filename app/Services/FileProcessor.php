@@ -160,7 +160,7 @@ class FileProcessor
         );
 
         $agg = MouvementAffecte::query()
-            ->join('mouvement_bruts as b', 'b.mvt_id', '=', 'mouvement_affectes.mouvement_brut_id')
+            ->join('mouvement_bruts as b', 'b.id', '=', 'mouvement_affectes.mouvement_brut_id')
             ->where('b.parkod', $parkod)
             ->where('mouvement_affectes.code_stock', $societe)
             ->whereBetween('mouvement_affectes.date_comptable', [$debutMois, $finMois])
@@ -369,7 +369,7 @@ class FileProcessor
             //mettre failed l'importation
             $BATCH->statut = "FAILED";
             $BATCH->save();
-            
+
             throw $e;
         }
     }

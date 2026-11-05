@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('type_mouvements', function (Blueprint $table) {
             $table->id();
-            $table->string('type_mouvement', 5)->unique()->comment('VA | AA | TM | RF/RE | IF | IC');
+            $table->string('type_mouvement', 5)->comment('VA | AA | TM | RF/RE | IF | IC');
             $table->enum('sens', ['IN', 'OUT', 'STK']);
             $table->enum('categorie', ['SELL_IN', 'SELL_OUT', 'REASSORT', 'TRANSFERT', 'INVENTAIRE']);
             $table->enum('regle_affect', ['PAR_MAG_DEST', 'PAR_MAG_ORIG', 'PAR_SOCIETE_PAYEUSE', 'REPARTI']);
