@@ -15,7 +15,9 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-
+use App\Filament\Exports\StockMensuelExporter;
+use Filament\Actions\ExportAction;
+use Filament\Actions\ExportBulkAction;
 class StockMensuelsTable
 {
     public static function configure(Table $table): Table
@@ -126,7 +128,6 @@ class StockMensuelsTable
                     TextColumn::make('val_cloture')
                         ->label('Valeur')
                         ->numeric(decimalPlaces: 2, locale: 'fr')
-                        ->weight('bold')
                         ->alignEnd()
                         ->sortable()
                         ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 2, locale: 'fr')),
@@ -199,6 +200,21 @@ class StockMensuelsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    DeleteBulkAction::make(),
+                ]),
+            ])
+            ->headerActions([
+                ExportAction::make()
+                    ->label('Exporter en Excel')
+                    ->exporter(StockMensuelExporter::class)
+                    ->columnMappingColumns(2)
+                    ->maxRows(200000),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    ExportBulkAction::make()
+                        ->label('Exporter la sélection')
+                        ->exporter(StockMensuelExporter::class),
                     DeleteBulkAction::make(),
                 ]),
             ])
