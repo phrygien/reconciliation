@@ -14,6 +14,7 @@ use App\Models\MouvementBrut;
 use App\Models\TypeMouvement;
 use App\Models\EtatStockWinparf;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Exception;
 
 class FileProcessor
@@ -28,41 +29,54 @@ class FileProcessor
 
     // --------------------- //
 
-    private function findOrCreateStockMensuel(string $parkod, string $annee_mois, string $code_stock): StockMensuel {
-        try{
+    private function findOrCreateStockMensuel(string $parkod, string $annee_mois, string $code_stock): StockMensuel
+    {
+        $periode = Periode::where('statut', 'OUVERTE')->firstOrFail();
 
-            // chercher une periode ouvert (OBLIGE D'AVOIR UNE SEULE PERIODE OUVERT )
-            $periode = Periode::where('statut', 'OUVERTE')->first();
-            if($periode->periode != $annee_mois){
-                throw new Exception('La periode ouvert ne correspond pas a la periode du mouvement en question');
-            }
-
-            // chercher un stock mensuel, si il n'y a pas, il faut le creer
-            $stock = StockMensuel::firstOrCreate(
-                ['parkod' => $parkod, 'periode' => $annee_mois, 'code_stock' => $code_stock],          // critères de recherche
-                [   'periode' => $annee_mois,
-                    'code_stock' => $code_stock,
-                    'parkod' => $parkod,
-                    'qte_ouverture' => 0,
-                    'val_ouverture' => 0,
-                    'qte_in'  => 0,
-                    'val_in'  => 0,
-                    'qte_out' => 0,
-                    'val_out' => 0,
-                    'qte_stk' => 0,
-                    'val_stk' => 0,
-                    'qte_cloture' => 0,
-                    'val_cloture' => 0,
-                    'pamp_cloture' => 0
-                ] // valeurs ajoutées seulement à la création
-            );
-
-            // retourner le stock ouvert
-            return $stock;
-
-        }catch(Exception $e){
-            throw $e;
+        if ($periode->periode > $annee_mois) {
+            throw new Exception('La période ouverte est supérieure à la période du mouvement (mouvement antérieur)');
         }
+
+        if ($periode->periode < $annee_mois) {
+            $this->cloturerPeriode($periode);
+            Periode::firstOrCreate(['periode' => $annee_mois], ['statut' => 'OUVERTE']);
+        }
+
+        // dernier stock connu avant cette période (même parkod + même société)
+        $prev = StockMensuel::where('parkod', $parkod)
+            ->where('code_stock', $code_stock)
+            ->where('periode', '<', $annee_mois)
+            ->orderByDesc('periode')
+            ->first();
+
+        $qteOuv = $prev->qte_cloture ?? 0;
+        $valOuv = $prev->val_cloture ?? 0;
+
+        return StockMensuel::firstOrCreate(
+            ['parkod' => $parkod, 'periode' => $annee_mois, 'code_stock' => $code_stock],
+            [
+                'qte_ouverture' => $qteOuv,
+                'val_ouverture' => $valOuv,
+                'qte_in' => 0, 'val_in' => 0,
+                'qte_out' => 0, 'val_out' => 0,
+                'qte_stk' => 0, 'val_stk' => 0,
+                'qte_cloture' => $qteOuv,
+                'val_cloture' => $valOuv,
+                'pamp_cloture' => $qteOuv > 0 ? round($valOuv / $qteOuv, 4) : 0,
+            ]
+        );
+    }
+
+    private function cloturerPeriode(Periode $periode): void
+    {
+        // recalcule TOUS les stocks de la période, pas seulement celui de la ligne en cours
+        StockMensuel::where('periode', $periode->periode)
+            ->get(['parkod', 'code_stock'])
+            ->each(fn ($s) => $this->recalculerStockMensuel($s->parkod, $periode->periode, $s->code_stock));
+
+        $periode->statut = 'CLOTUREE';
+        $periode->cloture_le = now();
+        $periode->save();
     }
 
     // lecture
@@ -92,10 +106,29 @@ class FileProcessor
         $debutMois = $periode . '-01';
         $finMois   = date('Y-m-t', strtotime($debutMois));
 
-        $STOCK = $this->findOrCreateStockMensuel($parkod, $periode, $societe);
+        // recherche du stock de la periode donnee
+        $periode_obj = Periode::where('periode', $periode)->first();
+        $STOCK = StockMensuel::firstOrCreate(
+            ['parkod' => $parkod, 'periode' => $periode_obj->periode, 'code_stock' => $societe],
+            [   'periode' => $periode_obj->periode,
+                'code_stock' => $societe,
+                'parkod' => $parkod,
+                'qte_ouverture' => 0,
+                'val_ouverture' => 0,
+                'qte_in'  => 0,
+                'val_in'  => 0,
+                'qte_out' => 0,
+                'val_out' => 0,
+                'qte_stk' => 0,
+                'val_stk' => 0,
+                'qte_cloture' => 0,
+                'val_cloture' => 0,
+                'pamp_cloture' => 0
+            ] // valeurs ajoutées seulement à la création
+        );
 
         $agg = MouvementAffecte::query()
-            ->join('mouvement_bruts as b', 'b.mvt_id', '=', 'mouvement_affectes.mouvement_brut_id')
+            ->join('mouvement_bruts as b', 'b.id', '=', 'mouvement_affectes.mouvement_brut_id')
             ->where('b.parkod', $parkod)
             ->where('mouvement_affectes.code_stock', $societe)
             ->whereBetween('mouvement_affectes.date_comptable', [$debutMois, $finMois])
@@ -140,21 +173,27 @@ class FileProcessor
     // --------------------- //
 
     // read file mvt
-    public function import_file(){
+    public function import_file($path){
         try{
 
-            $rows = $this->read("/depot_winparf/received/ADV-COSMA-MVT_20261020_013122.TXT"); // ligne de fichier
+            // trie ASC par rapport au date de mouvement
+            $rows = collect($this->read($path))->sortBy([
+                ['DATE_MVT', 'asc'],
+                ['SEQUENCE', 'asc'],
+            ])->values()->all(); 
 
             $touches = []; // variable de recalculation du stock mensuel
 
             //sauvegarde du batch (exemple)
             $BATCH = ImportBatch::create([
-                'nom_fichier' => "ADV-COSMA-MVT_20261020_013122.TXT",
+                'nom_fichier' => basename($path),
                 'importe_le' => now(),
                 'date_min' => collect($rows)->min('DATE_MVT'),
                 'date_max' => collect($rows)->max('DATE_MVT'),
                 'nb_ligne' => count($rows)
             ]);
+
+            DB::beginTransaction();
 
             foreach($rows as $row){
 
@@ -289,11 +328,18 @@ class FileProcessor
             $BATCH->statut = "SUCCESS";
             $BATCH->save();
 
+            DB::commit();
+
             return true;
 
         }catch(Exception $e){
-            //$BATCH->statut = "FAILED";
-           // $BATCH->save();
+            DB::rollBack();
+
+            if ($BATCH) {
+                $BATCH->statut = 'FAILED';
+                $BATCH->save();
+            }
+
             throw $e;
         }
     }
