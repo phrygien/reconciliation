@@ -29,86 +29,54 @@ class FileProcessor
 
     // --------------------- //
 
-    private function findOrCreateStockMensuel(string $parkod, string $annee_mois, string $code_stock): StockMensuel {
-        try{
+    private function findOrCreateStockMensuel(string $parkod, string $annee_mois, string $code_stock): StockMensuel
+    {
+        $periode = Periode::where('statut', 'OUVERTE')->firstOrFail();
 
-            // chercher une periode ouvert (OBLIGE D'AVOIR UNE SEULE PERIODE OUVERT )
-            $periode = Periode::where('statut', 'OUVERTE')->first();
-
-            if($periode->periode != $annee_mois){
-                // verification de la date du mouvement si superieur a la periode OUVERTE
-                if($periode->periode < $annee_mois){
-                    // cloture la periode
-                    $periode->statut = "CLOTUREE";
-                    $periode->cloture_le = now();
-                    $periode->save();
-                    // calculation du stock cloturee
-                    $this->recalculerStockMensuel($parkod, $periode->periode, $code_stock);
-
-                    // avoir les stock d'ouverture de la nouvel periode
-                    $ancien_stock_mensuel = StockMensuel::where(['parkod' => $parkod, 'periode' => $periode->periode, 'code_stock' => $code_stock])->first();
-                    $qte_stock_cloture_N_min_1 = $ancien_stock_mensuel->qte_cloture;
-                    $val_stock_cloture_N_min_1 = $ancien_stock_mensuel->val_cloture;
-
-                    // creation nouveau periode
-                    $new_periode = Periode::create([
-                        'periode' => $annee_mois,
-                        'statut' => "OUVERTE"
-                    ]);
-
-                    // creation du nouveau stock mensuel
-                    $stock = StockMensuel::firstOrCreate(
-                        ['parkod' => $parkod, 'periode' => $new_periode->periode, 'code_stock' => $code_stock],          // critères de recherche
-                        [   'periode' => $new_periode->periode,
-                            'code_stock' => $code_stock,
-                            'parkod' => $parkod,
-                            'qte_ouverture' => $qte_stock_cloture_N_min_1,
-                            'val_ouverture' => $val_stock_cloture_N_min_1,
-                            'qte_in'  => 0,
-                            'val_in'  => 0,
-                            'qte_out' => 0,
-                            'val_out' => 0,
-                            'qte_stk' => 0,
-                            'val_stk' => 0,
-                            'qte_cloture' => $qte_stock_cloture_N_min_1,
-                            'val_cloture' => $val_stock_cloture_N_min_1,
-                            'pamp_cloture' => 0
-                        ] // valeurs ajoutées seulement à la création
-                    );
-
-                    return $stock;
-
-                }else{
-                    throw new Exception('La periode ouvert est superieure a la periode du mouvement en question (un mouvement anterieur)');
-                }
-            }
-
-            // chercher un stock mensuel, si il n'y a pas, il faut le creer
-            $stock = StockMensuel::firstOrCreate(
-                ['parkod' => $parkod, 'periode' => $annee_mois, 'code_stock' => $code_stock],          // critères de recherche
-                [   'periode' => $annee_mois,
-                    'code_stock' => $code_stock,
-                    'parkod' => $parkod,
-                    'qte_ouverture' => 0,
-                    'val_ouverture' => 0,
-                    'qte_in'  => 0,
-                    'val_in'  => 0,
-                    'qte_out' => 0,
-                    'val_out' => 0,
-                    'qte_stk' => 0,
-                    'val_stk' => 0,
-                    'qte_cloture' => 0,
-                    'val_cloture' => 0,
-                    'pamp_cloture' => 0
-                ] // valeurs ajoutées seulement à la création
-            );
-
-            // retourner le stock ouvert
-            return $stock;
-
-        }catch(Exception $e){
-            throw $e;
+        if ($periode->periode > $annee_mois) {
+            throw new Exception('La période ouverte est supérieure à la période du mouvement (mouvement antérieur)');
         }
+
+        if ($periode->periode < $annee_mois) {
+            $this->cloturerPeriode($periode);
+            Periode::firstOrCreate(['periode' => $annee_mois], ['statut' => 'OUVERTE']);
+        }
+
+        // dernier stock connu avant cette période (même parkod + même société)
+        $prev = StockMensuel::where('parkod', $parkod)
+            ->where('code_stock', $code_stock)
+            ->where('periode', '<', $annee_mois)
+            ->orderByDesc('periode')
+            ->first();
+
+        $qteOuv = $prev->qte_cloture ?? 0;
+        $valOuv = $prev->val_cloture ?? 0;
+
+        return StockMensuel::firstOrCreate(
+            ['parkod' => $parkod, 'periode' => $annee_mois, 'code_stock' => $code_stock],
+            [
+                'qte_ouverture' => $qteOuv,
+                'val_ouverture' => $valOuv,
+                'qte_in' => 0, 'val_in' => 0,
+                'qte_out' => 0, 'val_out' => 0,
+                'qte_stk' => 0, 'val_stk' => 0,
+                'qte_cloture' => $qteOuv,
+                'val_cloture' => $valOuv,
+                'pamp_cloture' => $qteOuv > 0 ? round($valOuv / $qteOuv, 4) : 0,
+            ]
+        );
+    }
+
+    private function cloturerPeriode(Periode $periode): void
+    {
+        // recalcule TOUS les stocks de la période, pas seulement celui de la ligne en cours
+        StockMensuel::where('periode', $periode->periode)
+            ->get(['parkod', 'code_stock'])
+            ->each(fn ($s) => $this->recalculerStockMensuel($s->parkod, $periode->periode, $s->code_stock));
+
+        $periode->statut = 'CLOTUREE';
+        $periode->cloture_le = now();
+        $periode->save();
     }
 
     // lecture
