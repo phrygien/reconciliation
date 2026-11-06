@@ -89,15 +89,30 @@ class FileProcessor
             throw new \RuntimeException("Impossible d'ouvrir le fichier.");
         }
 
-        $entetes = fgetcsv($handle, 0, $separateur);
+        $entetes = $this->versUtf8(fgetcsv($handle, 0, $separateur));
 
         while (($row = fgetcsv($handle, 0, $separateur)) !== false) {
-            $lignes[] = array_combine($entetes, $row);
+            $lignes[] = array_combine($entetes, $this->versUtf8($row));
         }
 
         fclose($handle);
 
         return $lignes;
+    }
+    private function versUtf8(array $valeurs): array
+    {
+        return array_map(function ($v) {
+            if ($v === null) {
+                return null;
+            }
+
+            // déjà en UTF-8 ? on ne touche pas
+            if (mb_check_encoding($v, 'UTF-8')) {
+                return trim($v);
+            }
+
+            return trim(mb_convert_encoding($v, 'UTF-8', 'Windows-1252'));
+        }, $valeurs);
     }
 
     // recalculation du stock mensuel
@@ -153,11 +168,13 @@ class FileProcessor
             ->orderByDesc('date_comptable')
             ->first();
 
-        $STOCK->qte_stk = $stk->qte    ?? 0;
-        $STOCK->val_stk = $stk->valeur ?? 0;
+        // faire le calcule de l'ecart (dans cette table, on a des + ou - [inventaire], a la somme des ligne on aura a la fin des + ou -)
+        $STOCK->qte_stk += $stk->qte    ?? 0;
+        $STOCK->val_stk += $stk->valeur ?? 0;
 
-        $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out;
-        $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out;
+        // application de la formule [qte_cloture = qte_ouverture + qte_in + qte_out(negatif) + qte_stk( + ou -)] 
+        $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out + $STOCK->qte_stk;
+        $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out + $STOCK->val_stk;
 
         if ($STOCK->qte_cloture == 0) {
             $STOCK->val_cloture = 0;
@@ -340,6 +357,55 @@ class FileProcessor
                 $BATCH->save();
             }
 
+            throw $e;
+        }
+    }
+
+    // init stock initial
+    public function initStock202609(){
+        try{
+            DB::beginTransaction();
+
+            // trie ASC par rapport au date de mouvement
+            $rows = collect($this->read("depot_winparf/init/INIT-STOCK-ASV_20260915_000000.TXT"))->sortBy([
+                ['DATE_MVT', 'asc'],
+                ['SEQUENCE', 'asc'],
+            ])->values()->all(); 
+
+            foreach($rows as $row){
+                //creation marque | creation/modification article
+                $MARQUE = Marque::firstOrCreate(
+                    ["nom" => $row['MARQUE']],
+                    ["nom" => $row['MARQUE']]
+                );
+                $ARTICLE = Article::updateOrCreate(
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                );
+
+                //avoir la periode
+                $PERIODE_MVT = "2026-09";
+
+                StockMensuel::firstOrCreate(
+                    ['parkod' => $row['PARKOD'], 'periode' => $PERIODE_MVT, 'code_stock' => $row['SOCIETE']],
+                    [
+                        'qte_ouverture' => $row['QTE'],
+                        'val_ouverture' => $row['MONTANT_IN_OUT'],
+                        'qte_in' => 0, 'val_in' => 0,
+                        'qte_out' => 0, 'val_out' => 0,
+                        'qte_stk' => 0, 'val_stk' => 0,
+                        'qte_cloture' => $row['QTE'],
+                        'val_cloture' => $row['MONTANT_IN_OUT'],
+                        'pamp_cloture' => $row['PAMP'] > 0 ? round($row['MONTANT_IN_OUT'] / $row['QTE'], 4) : 0,
+                    ]
+                );
+            }
+            
+            DB::commit();
+            return true;
+
+        }catch(Exception $e){
+            DB::rollBack();
             throw $e;
         }
     }
