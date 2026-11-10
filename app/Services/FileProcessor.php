@@ -353,7 +353,7 @@ class FileProcessor
         }catch(Exception $e){
             DB::rollBack();
 
-            if ($BATCH) {
+            if (isset($BATCH)) {
                 $BATCH->statut = 'FAILED';
                 $BATCH->save();
             }
