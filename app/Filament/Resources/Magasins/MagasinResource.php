@@ -23,7 +23,7 @@ use Filament\Tables\Table;
 
 class MagasinResource extends Resource
 {
-    protected static string | UnitEnum | null $navigationGroup = 'Plateforme';
+    protected static string | UnitEnum | null $navigationGroup = 'CONFIGURATION';
     protected static ?int $navigationSort = 2;
 
     protected static ?string $model = Magasin::class;

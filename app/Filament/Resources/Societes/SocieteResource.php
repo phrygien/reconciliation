@@ -20,7 +20,7 @@ use UnitEnum;
 
 class SocieteResource extends Resource
 {
-    protected static string | UnitEnum | null $navigationGroup = 'Plateforme';
+    protected static string | UnitEnum | null $navigationGroup = 'CONFIGURATION';
     protected static ?int $navigationSort = 1;
 
     protected static ?string $model = Societe::class;

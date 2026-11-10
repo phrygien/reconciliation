@@ -12,6 +12,7 @@ use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -25,11 +26,51 @@ class StockMensuelsRelationManager extends RelationManager
 
     protected static ?string $pluralModelLabel = 'stocks mensuels';
 
+    /** Dépôt affiché dans le libellé du total. */
+    private const DEPOT = '0000';
+
+    /**
+     * Périodes ouvertes pour lesquelles cet article n'a pas encore de stock mensuel.
+     *
+     * @return array<int, string>
+     */
+    private function periodesIndisponibles(): array
+    {
+        $existantes = $this->getOwnerRecord()
+            ->stockMensuels()
+            ->reorder()
+            ->distinct()
+            ->pluck('periode');
+
+        return Periode::query()
+            ->ouvertes()
+            ->whereNotIn('periode', $existantes)
+            ->orderByDesc('periode')
+            ->pluck('periode')
+            ->all();
+    }
+
     public function table(Table $table): Table
     {
         return $table
+            ->description(function (): ?string {
+                $manquantes = $this->periodesIndisponibles();
+
+                return $manquantes === []
+                    ? null
+                    : 'Stock pas encore disponible pour : ' . implode(', ', $manquantes);
+            })
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['periodeRef', 'societe']))
-            ->defaultSort('periode', 'desc')
+            ->groups([
+                Group::make('periode')
+                    ->label('Période')
+                    ->getTitleFromRecordUsing(fn (StockMensuel $record): string => $record->periode
+                        . ($record->periodeRef?->estOuverte() ? ' — ouverte' : ' — clôturée'))
+                    ->orderQueryUsing(fn (Builder $query) => $query->orderByDesc('periode'))
+                    ->collapsible(),
+            ])
+            ->defaultGroup('periode')
+            ->defaultSort('code_stock')
             ->striped()
             ->columns([
                 TextColumn::make('periode')
@@ -81,15 +122,19 @@ class StockMensuelsRelationManager extends RelationManager
                     ->numeric(decimalPlaces: 0, locale: 'fr')
                     ->weight('bold')
                     ->alignEnd()
-                    ->sortable(),
+                    ->sortable()
+                    ->summarize(
+                        Sum::make()
+                            ->label('Stock actuel dépôt ' . self::DEPOT)
+                            ->numeric(decimalPlaces: 0, locale: 'fr'),
+                    ),
 
                 TextColumn::make('val_cloture')
                     ->label('Val. clôture')
                     ->numeric(decimalPlaces: 2, locale: 'fr')
                     ->weight('bold')
                     ->alignEnd()
-                    ->sortable()
-                    ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 2, locale: 'fr')),
+                    ->sortable(),
 
                 TextColumn::make('pamp_cloture')
                     ->label('PAMP')
@@ -140,7 +185,8 @@ class StockMensuelsRelationManager extends RelationManager
                 ViewAction::make()
                     ->url(fn (StockMensuel $record): string => StockMensuelResource::getUrl('view', ['record' => $record])),
             ])
-            ->emptyStateHeading('Aucun stock mensuel pour cet article')
+            ->emptyStateHeading('Stock pas encore disponible')
+            ->emptyStateDescription('Aucun stock mensuel n\'a encore été calculé pour cet article.')
             ->paginated([10, 25, 50])
             ->defaultPaginationPageOption(10);
     }

@@ -12,7 +12,8 @@
         "filafly/filament-phosphor-icons": "^2.2",
         "filament/filament": "~5.0",
         "laravel/framework": "^13.17",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "osamanagi/filament-daisy-ui-themes": "^1.1"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

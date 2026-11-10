@@ -22,7 +22,7 @@ use Filament\Tables\Table;
 
 class ArticleResource extends Resource
 {
-    protected static string | UnitEnum | null $navigationGroup = 'Plateforme';
+    protected static string | UnitEnum | null $navigationGroup = 'CONFIGURATION';
     protected static ?int $navigationSort = 3;
 
     protected static ?string $model = Article::class;

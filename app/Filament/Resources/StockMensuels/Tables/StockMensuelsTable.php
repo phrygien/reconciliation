@@ -2,163 +2,147 @@
 
 namespace App\Filament\Resources\StockMensuels\Tables;
 
+use App\Filament\Exports\StockMensuelExporter;
+use App\Models\Article;
 use App\Models\Periode;
 use App\Models\Societe;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
+use App\Models\StockMensuel;
+use Filament\Actions\ExportAction;
+use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Columns\ColumnGroup;
 use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use App\Filament\Exports\StockMensuelExporter;
-use Filament\Actions\ExportAction;
-use Filament\Actions\ExportBulkAction;
+
 class StockMensuelsTable
 {
+    private static function couleur(mixed $state): string
+    {
+        return match (true) {
+            $state === null => 'gray',
+            $state < 0 => 'danger',
+            $state == 0 => 'gray',
+            default => 'success',
+        };
+    }
+
+    private static function colonneQte(
+        string $alias,
+        string $label,
+        bool $gras = false,
+        string $labelTotal = 'Total',
+    ): TextColumn {
+        return TextColumn::make($alias)
+            ->label($label)
+            ->numeric(decimalPlaces: 0, locale: 'fr')
+            ->placeholder('0')
+            ->color(fn ($state) => self::couleur($state))
+            ->weight($gras ? 'bold' : null)
+            ->alignEnd()
+            ->sortable()
+            ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 0, locale: 'fr'));
+    }
+
+    private static function colonneVal(
+        string $alias,
+        string $label,
+        bool $cache = true,
+        string $labelTotal = 'Total',
+    ): TextColumn {
+        return TextColumn::make($alias)
+            ->label($label)
+            ->numeric(decimalPlaces: 2, locale: 'fr')
+            ->placeholder('0,00')
+            ->alignEnd()
+            ->sortable()
+            ->toggleable(isToggledHiddenByDefault: $cache)
+            ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 2, locale: 'fr'));
+    }
+
     public static function configure(Table $table): Table
     {
+        /** @var array<string, string> $societes code_stock => libellé */
+        $societes = Societe::query()
+            ->orderBy('code_stock')
+            ->pluck('libelle', 'code_stock')
+            ->all();
+
+        $groupesSocietes = [];
+        $i = 0;
+        foreach ($societes as $code => $libelle) {
+            $groupesSocietes[] = ColumnGroup::make(($libelle ?: $code) . " ({$code})", [
+                self::colonneQte("s{$i}_qte", 'Qté', gras: true),
+                self::colonneVal("s{$i}_val", 'Valeur'),
+            ])->alignCenter();
+            $i++;
+        }
+
+        $labelTotal = 'Total stock dépôt centrale';
+
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['periodeRef', 'societe', 'article']))
-            ->defaultSort('periode', 'desc')
+            ->modifyQueryUsing(function (Builder $query) use ($societes) {
+                $selects = ['MIN(id) as id', 'periode', 'parkod'];
+                $bindings = [];
+
+                $i = 0;
+                foreach (array_keys($societes) as $code) {
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_cloture END), 0) as s{$i}_qte";
+                    $bindings[] = $code;
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN val_cloture END), 0) as s{$i}_val";
+                    $bindings[] = $code;
+                    $i++;
+                }
+
+                $selects[] = 'COALESCE(SUM(qte_cloture), 0) as t_qte';
+                $selects[] = 'COALESCE(SUM(val_cloture), 0) as t_val';
+
+                return $query
+                    ->with(['article', 'periodeRef'])
+                    ->selectRaw(implode(', ', $selects), $bindings)
+                    ->groupBy('periode', 'parkod');
+            })
+            ->groups([
+                Group::make('periode')
+                    ->label('Période')
+                    ->getTitleFromRecordUsing(fn ($record): string => $record->periode
+                        . ($record->periodeRef?->estOuverte() ? ' — ouverte' : ' — clôturée'))
+                    ->orderQueryUsing(fn (Builder $query, string $direction) => $query->orderBy('periode', $direction))
+                    ->collapsible(),
+            ])
+            ->defaultGroup('periode')
+            ->defaultSort('parkod')
             ->striped()
             ->persistFiltersInSession()
             ->columns([
                 TextColumn::make('periode')
                     ->label('Période')
-                    ->tooltip(fn ($record) => $record->periodeRef?->estOuverte()
-                        ? 'Période ouverte'
-                        : 'Période clôturée')
+                    ->badge()
+                    ->color(fn ($record) => $record->periodeRef?->estOuverte() ? 'success' : 'gray')
                     ->searchable()
-                    ->sortable(),
-
-                TextColumn::make('societe.libelle')
-                    ->label('Société')
-                    ->description(fn ($record) => $record->code_stock)
-                    ->searchable(['code_stock', 'societe.libelle'])
-                    ->sortable(['code_stock'])
-                    ->toggleable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('parkod')
-                    ->label('Article')
-                    ->description(fn ($record) => $record->article?->description)
-                    ->weight('medium')
+                    ->label('Code article')
                     ->copyable()
                     ->searchable(isIndividual: true)
                     ->sortable(),
 
-                ColumnGroup::make('Ouverture', [
-                    TextColumn::make('qte_ouverture')
-                        ->label('Qté')
-                        ->numeric(decimalPlaces: 0, locale: 'fr')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 0, locale: 'fr')),
-                    TextColumn::make('val_ouverture')
-                        ->label('Valeur')
-                        ->numeric(decimalPlaces: 2, locale: 'fr')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 2, locale: 'fr')),
-                ]),
+                TextColumn::make('article.description')
+                    ->label('Désignation')
+                    ->searchable(isIndividual: true)
+                    ->wrap(),
 
-                ColumnGroup::make('Entrées', [
-                    TextColumn::make('qte_in')
-                        ->label('Qté')
-                        ->numeric(decimalPlaces: 0, locale: 'fr')
-                        ->color('success')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 0, locale: 'fr')),
-                    TextColumn::make('val_in')
-                        ->label('Valeur')
-                        ->numeric(decimalPlaces: 2, locale: 'fr')
-                        ->color('success')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 2, locale: 'fr')),
-                ]),
+                ...$groupesSocietes,
 
-                ColumnGroup::make('Sorties', [
-                    TextColumn::make('qte_out')
-                        ->label('Qté')
-                        ->numeric(decimalPlaces: 0, locale: 'fr')
-                        ->color('danger')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 0, locale: 'fr')),
-                    TextColumn::make('val_out')
-                        ->label('Valeur')
-                        ->numeric(decimalPlaces: 2, locale: 'fr')
-                        ->color('danger')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 2, locale: 'fr')),
-                ]),
-
-                ColumnGroup::make('Écart inventaire', [
-                    TextColumn::make('qte_stk')
-                        ->label('Qté')
-                        ->numeric(decimalPlaces: 0, locale: 'fr')
-                        ->color(fn ($state) => $state < 0 ? 'danger' : ($state > 0 ? 'success' : null))
-                        ->alignEnd()
-                        ->sortable()
-                        ->toggleable(isToggledHiddenByDefault: true),
-                    TextColumn::make('val_stk')
-                        ->label('Valeur')
-                        ->numeric(decimalPlaces: 2, locale: 'fr')
-                        ->color(fn ($state) => $state < 0 ? 'danger' : ($state > 0 ? 'success' : null))
-                        ->alignEnd()
-                        ->sortable()
-                        ->toggleable(isToggledHiddenByDefault: true),
-                ]),
-
-                ColumnGroup::make('Clôture', [
-                    TextColumn::make('qte_cloture')
-                        ->label('Qté')
-                        ->numeric(decimalPlaces: 0, locale: 'fr')
-                        ->weight('bold')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 0, locale: 'fr')),
-                    TextColumn::make('val_cloture')
-                        ->label('Valeur')
-                        ->numeric(decimalPlaces: 2, locale: 'fr')
-                        ->alignEnd()
-                        ->sortable()
-                        ->summarize(Sum::make()->label('Total')->numeric(decimalPlaces: 2, locale: 'fr')),
-                    TextColumn::make('pamp_cloture')
-                        ->label('PAMP')
-                        ->numeric(decimalPlaces: 4, locale: 'fr')
-                        ->alignEnd()
-                        ->sortable(),
-                ]),
-
-                /*TextColumn::make('coherent')
-                    ->label('Cohérence')
-                    ->state(fn ($record) => $record->estCoherent() ? 'OK' : 'Écart')
-                    ->badge()
-                    ->color(fn (string $state) => $state === 'OK' ? 'success' : 'danger')
-                    ->tooltip(fn ($record) => $record->estCoherent()
-                        ? 'Clôture conforme au calcul'
-                        : 'Théorique : ' . $record->qteClotureTheorique() . ' u. / ' . $record->valClotureTheorique())
-                    ->alignCenter(),*/
-
-                TextColumn::make('created_at')
-                    ->label('Créé le')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('updated_at')
-                    ->label('Modifié le')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                ColumnGroup::make($labelTotal, [
+                    self::colonneQte('t_qte', 'Qté clôture', gras: true, labelTotal: $labelTotal),
+                    self::colonneVal('t_val', 'Valeur', labelTotal: $labelTotal),
+                ])->alignCenter(),
             ])
             ->filters([
                 SelectFilter::make('periode')
@@ -171,52 +155,25 @@ class StockMensuelsTable
                     ->searchable()
                     ->multiple(),
 
-                SelectFilter::make('code_stock')
-                    ->label('Société')
-                    ->options(fn () => Societe::query()
-                        ->orderBy('libelle')
-                        ->pluck('libelle', 'code_stock')
-                        ->all())
-                    ->searchable()
-                    ->multiple(),
-
-                Filter::make('incoherents')
-                    ->label('Clôtures incohérentes')
-                    ->toggle()
-                    ->query(fn (Builder $query) => $query->whereRaw(
-                        '(qte_cloture <> qte_ouverture + qte_in - qte_out + qte_stk
-                          OR ROUND(val_cloture, 4) <> ROUND(val_ouverture + val_in - val_out + val_stk, 4))'
-                    )),
-
                 Filter::make('stock_negatif')
-                    ->label('Stock de clôture négatif')
+                    ->label('Stock négatif (une société au moins)')
                     ->toggle()
                     ->query(fn (Builder $query) => $query->where('qte_cloture', '<', 0)),
             ])
-            ->recordActions([
-                ViewAction::make(),
-                EditAction::make()
-                    ->visible(fn ($record) => $record->periodeRef?->estOuverte()),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ])
             ->headerActions([
                 ExportAction::make()
-                    ->label('Exporter en Excel')
+                    ->label('Export stock mensuels')
                     ->exporter(StockMensuelExporter::class)
-                    ->columnMappingColumns(2)
-                    ->maxRows(200000),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    ExportBulkAction::make()
-                        ->label('Exporter la sélection')
-                        ->exporter(StockMensuelExporter::class),
-                    DeleteBulkAction::make(),
-                ]),
+                    ->fileDisk('local')
+                    ->chunkSize(500)
+                    // On ignore la requête groupée de la table : l'export part des articles
+                    ->modifyQueryUsing(fn (Builder $query, array $options): Builder => Article::query()
+                        ->whereIn(
+                            'parkod',
+                            StockMensuel::query()
+                                ->pourPeriode($options['periode'])
+                                ->select('parkod')
+                        )),
             ])
             ->emptyStateHeading('Aucun stock mensuel')
             ->paginated([25, 50, 100])

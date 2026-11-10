@@ -20,7 +20,7 @@ use Filament\Tables\Table;
 
 class MarqueResource extends Resource
 {
-    protected static string | UnitEnum | null $navigationGroup = 'Plateforme';
+    protected static string | UnitEnum | null $navigationGroup = 'CONFIGURATION';
     protected static ?int $navigationSort = 4;
 
     protected static ?string $model = Marque::class;

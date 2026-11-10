@@ -2,79 +2,85 @@
 
 namespace App\Filament\Exports;
 
+use App\Models\Article;
+use App\Models\Periode;
+use App\Models\Societe;
 use App\Models\StockMensuel;
 use Filament\Actions\Exports\Enums\ExportFormat;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
+use Filament\Forms\Components\Select;
 use Illuminate\Database\Eloquent\Builder;
 use OpenSpout\Common\Entity\Cell;
 use OpenSpout\Common\Entity\Row;
-use OpenSpout\Common\Entity\Style\Border;
-use OpenSpout\Common\Entity\Style\BorderPart;
 use OpenSpout\Common\Entity\Style\CellAlignment;
 use OpenSpout\Common\Entity\Style\CellVerticalAlignment;
 use OpenSpout\Common\Entity\Style\Color;
 use OpenSpout\Common\Entity\Style\Style;
+use OpenSpout\Writer\Common\Manager\Style\StyleMerger;
 use OpenSpout\Writer\XLSX\Entity\SheetView;
 use OpenSpout\Writer\XLSX\Options;
 use OpenSpout\Writer\XLSX\Writer;
 
 class StockMensuelExporter extends Exporter
 {
-    protected static ?string $model = StockMensuel::class;
-    private const QTE = ['qte_ouverture', 'qte_in', 'qte_out', 'qte_stk', 'qte_cloture'];
-    private const VAL = ['val_ouverture', 'val_in', 'val_out', 'val_stk', 'val_cloture'];
+    protected static ?string $model = Article::class;
 
-    private const WIDTHS = [
-        'periode'         => 11,
-        'code_stock'      => 12,
-        'societe.libelle' => 18,
-        'parkod'          => 14,
-        'article.description' => 38,
-        'qte_ouverture'   => 14,
-        'val_ouverture'   => 16,
-        'qte_in'          => 14,
-        'val_in'          => 16,
-        'qte_out'         => 14,
-        'val_out'         => 16,
-        'qte_stk'         => 18,
-        'val_stk'         => 18,
-        'qte_cloture'     => 14,
-        'val_cloture'     => 16,
-        'pamp_cloture'    => 14,
-        'coherence'       => 12,
-    ];
+    /** Cache par période : [parkod => [code_stock => qte_cloture]] */
+    protected static array $pivot = [];
 
-    public static function modifyQuery(Builder $query): Builder
+    protected static function pivot(string $periode): array
     {
-        return $query->with(['societe', 'article']);
+        return self::$pivot[$periode] ??= StockMensuel::query()
+            ->pourPeriode($periode)
+            ->get(['parkod', 'code_stock', 'qte_cloture'])
+            ->groupBy('parkod')
+            ->map(fn ($rows) => $rows->pluck('qte_cloture', 'code_stock')->all())
+            ->all();
     }
 
     public static function getColumns(): array
     {
+        $columns = [
+            ExportColumn::make('periode')
+                ->label('Période')
+                ->state(fn (array $options): string => (string) $options['periode']),
+
+            ExportColumn::make('parkod')
+                ->label('Code article'),
+
+            ExportColumn::make('description')
+                ->label('Désignation'),
+        ];
+
+        $societes = Societe::query()->orderBy('code_stock')->pluck('libelle', 'code_stock');
+
+        foreach ($societes as $code => $libelle) {
+            $columns[] = ExportColumn::make("qte_{$code}")
+                ->label(($libelle ?: $code) . " ({$code})")
+                ->state(fn (Article $record, array $options): int => (int) (
+                    self::pivot($options['periode'])[$record->parkod][$code] ?? 0
+                ));
+        }
+
+        $columns[] = ExportColumn::make('qte_cloture_total')
+            ->label('Total stock dépôt centrale')
+            ->state(fn (Article $record, array $options): int => (int) array_sum(
+                self::pivot($options['periode'])[$record->parkod] ?? []
+            ));
+
+        return $columns;
+    }
+
+    public static function getOptionsFormComponents(): array
+    {
         return [
-            ExportColumn::make('periode')->label('Période'),
-            ExportColumn::make('code_stock')->label('Code stock'),
-            ExportColumn::make('societe.libelle')->label('Société'),
-            ExportColumn::make('parkod')->label('Parkod'),
-            ExportColumn::make('article.description')->label('Description article'),
-
-            ExportColumn::make('qte_ouverture')->label('Qté ouverture'),
-            ExportColumn::make('val_ouverture')->label('Val ouverture'),
-            ExportColumn::make('qte_in')->label('Qté entrées'),
-            ExportColumn::make('val_in')->label('Val entrées'),
-            ExportColumn::make('qte_out')->label('Qté sorties'),
-            ExportColumn::make('val_out')->label('Val sorties'),
-            ExportColumn::make('qte_stk')->label('Qté écart inventaire'),
-            ExportColumn::make('val_stk')->label('Val écart inventaire'),
-            ExportColumn::make('qte_cloture')->label('Qté clôture'),
-            ExportColumn::make('val_cloture')->label('Val clôture'),
-            ExportColumn::make('pamp_cloture')->label('PAMP clôture'),
-
-            ExportColumn::make('coherence')
-                ->label('Cohérence')
-                ->state(fn (StockMensuel $record): string => $record->estCoherent() ? 'OK' : 'Écart'),
+            Select::make('periode')
+                ->label('Période')
+                ->options(fn () => Periode::query()->orderByDesc('periode')->pluck('periode', 'periode')->all())
+                ->default(fn () => Periode::ouvertes()->orderByDesc('periode')->value('periode'))
+                ->required(),
         ];
     }
 
@@ -85,23 +91,22 @@ class StockMensuelExporter extends Exporter
 
     public function getFileName(Export $export): string
     {
-        return 'stock-mensuel-' . now()->format('Y-m-d-His');
+        return 'stock-mensuel-' . ($export->getOptions()['periode'] ?? $export->getKey());
     }
-    private function bordure(): Border
+
+    public static function modifyQuery(Builder $query): Builder
     {
-        return new Border(
-            new BorderPart(Border::BOTTOM, Color::rgb(209, 213, 219), Border::WIDTH_THIN, Border::STYLE_SOLID),
-            new BorderPart(Border::RIGHT, Color::rgb(229, 231, 235), Border::WIDTH_THIN, Border::STYLE_SOLID),
-        );
+        return $query->orderBy('parkod');
     }
+
+    // ───────────────────────── Styles XLSX ─────────────────────────
 
     public function getXlsxCellStyle(): ?Style
     {
         return (new Style())
             ->setFontName('Calibri')
             ->setFontSize(11)
-            ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
-            ->setBorder($this->bordure());
+            ->setCellVerticalAlignment(CellVerticalAlignment::CENTER);
     }
 
     public function getXlsxHeaderCellStyle(): ?Style
@@ -111,88 +116,71 @@ class StockMensuelExporter extends Exporter
             ->setFontBold()
             ->setFontSize(11)
             ->setFontColor(Color::WHITE)
-            ->setBackgroundColor(Color::rgb(31, 41, 55))
+            ->setBackgroundColor(Color::rgb(31, 56, 100))
             ->setCellAlignment(CellAlignment::CENTER)
             ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
-            ->setShouldWrapText(true)
-            ->setBorder($this->bordure());
+            ->setShouldWrapText(true);
     }
 
-    public function makeXlsxRow(array $values, ?Style $style = null): Row
+    /**
+     * En-tête : tout en texte (libellé + code_stock), jamais converti en nombre.
+     *
+     * @param array<mixed> $values
+     */
+    public function makeXlsxHeaderRow(array $values, ?Style $style = null): Row
     {
         $cells = [];
 
-        foreach (array_keys($this->columnMap) as $i => $column) {
-            $value = $values[$i] ?? null;
-
-            $cell = match (true) {
-                in_array($column, self::QTE, true) => Cell::fromValue(
-                    (int) $value,
-                    $this->style($style, '#,##0;[Red]-#,##0', CellAlignment::RIGHT),
-                ),
-
-                in_array($column, self::VAL, true) => Cell::fromValue(
-                    (float) $value,
-                    $this->style($style, '#,##0.00;[Red]-#,##0.00', CellAlignment::RIGHT),
-                ),
-
-                $column === 'pamp_cloture' => Cell::fromValue(
-                    (float) $value,
-                    $this->style($style, '#,##0.0000', CellAlignment::RIGHT),
-                ),
-
-                $column === 'coherence' => Cell::fromValue(
-                    $value,
-                    $this->style($style, null, CellAlignment::CENTER, bold: true, color: $value === 'OK'
-                        ? Color::rgb(22, 163, 74)
-                        : Color::rgb(220, 38, 38)),
-                ),
-
-                default => Cell::fromValue($value, $style),
-            };
-
-            $cells[] = $cell;
+        foreach ($values as $value) {
+            $cells[] = Cell::fromValue((string) $value, $style);
         }
 
         return new Row($cells, $style);
     }
 
-    private function style(
-        ?Style $base,
-        ?string $format,
-        string $alignment,
-        bool $bold = false,
-        ?string $color = null,
-    ): Style {
-        $style = (new Style())
-            ->setFontName('Calibri')
-            ->setFontSize(11)
-            ->setCellAlignment($alignment)
-            ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
-            ->setBorder($this->bordure());
+    /**
+     * @param array<mixed> $values
+     */
+    public function makeXlsxRow(array $values, ?Style $style = null): Row
+    {
+        $styleMerger = new StyleMerger();
+        $cells = [];
 
-        if ($format) {
-            $style->setFormat($format);
+        foreach (array_keys($this->columnMap) as $i => $column) {
+            $value = $values[$i] ?? null;
+
+            if (str_starts_with($column, 'qte_')) {
+                $numStyle = (new Style())
+                    ->setFormat('#,##0;[Red]-#,##0')
+                    ->setCellAlignment(CellAlignment::RIGHT);
+
+                if ($column === 'qte_cloture_total') {
+                    $numStyle->setFontBold()->setBackgroundColor(Color::rgb(221, 235, 247));
+                }
+
+                $cells[] = Cell::fromValue((int) $value, $styleMerger->merge($numStyle, $style));
+            } else {
+                $cells[] = Cell::fromValue((string) $value, $style);
+            }
         }
 
-        if ($bold) {
-            $style->setFontBold();
-        }
-
-        if ($color) {
-            $style->setFontColor($color);
-        }
-
-        return $style;
+        return new Row($cells, $style);
     }
 
     public function getXlsxWriterOptions(): ?Options
     {
         $options = new Options();
 
-        // Largeurs adaptées aux colonnes réellement sélectionnées
         foreach (array_keys($this->columnMap) as $i => $column) {
-            $options->setColumnWidth(self::WIDTHS[$column] ?? 15, $i + 1);
+            $width = match (true) {
+                $column === 'periode' => 11,
+                $column === 'parkod' => 16,
+                $column === 'description' => 48,
+                $column === 'qte_cloture_total' => 22,
+                default => 18,
+            };
+
+            $options->setColumnWidth($width, $i + 1);
         }
 
         return $options;
@@ -202,7 +190,7 @@ class StockMensuelExporter extends Exporter
     {
         $sheetView = new SheetView();
         $sheetView->setFreezeRow(2);
-        $sheetView->setFreezeColumn('E');
+        $sheetView->setFreezeColumn('D');
 
         $sheet = $writer->getCurrentSheet();
         $sheet->setSheetView($sheetView);
