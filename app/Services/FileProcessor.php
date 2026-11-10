@@ -39,9 +39,46 @@ class FileProcessor
         }
 
         if ($periode->periode < $annee_mois) {
+            Log::channel('stderr')->info($periode->periode . " < " . $annee_mois); 
             $this->cloturerPeriode($periode);
             Periode::firstOrCreate(['periode' => $annee_mois], ['statut' => 'OUVERTE']);
         }
+
+        //---------------------------//
+        //          SIBLINGS         //
+        //---------------------------// 
+
+        //preparation stock ouverture sibblings
+        $code_stock_siblings =  ($code_stock == "ADV") ? "COSMA" : "ADV";
+
+        // dernier stock connu avant cette période (même parkod + même société)
+        $prev_siblings = StockMensuel::where('parkod', $parkod)
+            ->where('code_stock', $code_stock_siblings)
+            ->where('periode', '<', $annee_mois)
+            ->orderByDesc('periode')
+            ->first();
+
+        $qteOuv_siblings = $prev_siblings->qte_cloture ?? 0;
+        $valOuv_siblings = $prev_siblings->val_cloture ?? 0;
+
+        // creation du stock virtuel soeur du code stock (ADV / COSMA)  
+        StockMensuel::firstOrCreate(
+            ['parkod' => $parkod, 'periode' => $annee_mois, 'code_stock' => $code_stock_siblings],
+            [
+                'qte_ouverture' => $qteOuv_siblings,
+                'val_ouverture' => $valOuv_siblings,
+                'qte_in' => 0, 'val_in' => 0,
+                'qte_out' => 0, 'val_out' => 0,
+                'qte_stk' => 0, 'val_stk' => 0,
+                'qte_cloture' => $qteOuv_siblings,
+                'val_cloture' => $valOuv_siblings,
+                'pamp_cloture' => $qteOuv_siblings > 0 ? round($valOuv_siblings / $qteOuv_siblings, 4) : 0,
+            ]
+        );
+
+        //---------------------------//
+        //          ME               //
+        //---------------------------// 
 
         // dernier stock connu avant cette période (même parkod + même société)
         $prev = StockMensuel::where('parkod', $parkod)
@@ -70,10 +107,14 @@ class FileProcessor
 
     private function cloturerPeriode(Periode $periode): void
     {
+        Log::channel('stderr')->info("initatialization de la cloturation de la periode : " . $periode->periode . " (recalculation de tout le stock mensuel)");
+
         // recalcule TOUS les stocks de la période, pas seulement celui de la ligne en cours
         StockMensuel::where('periode', $periode->periode)
             ->get(['parkod', 'code_stock'])
             ->each(fn ($s) => $this->recalculerStockMensuel($s->parkod, $periode->periode, $s->code_stock));
+
+        Log::channel('stderr')->info("Fin de la cloturation de la periode : " . $periode->periode);
 
         $periode->statut = 'CLOTUREE';
         $periode->cloture_le = now();
@@ -119,6 +160,8 @@ class FileProcessor
     // recalculation du stock mensuel
     protected function recalculerStockMensuel(string $parkod, string $periode, string $societe): void
     {
+        Log::channel('stderr')->info("recalculer Stock Mensuel : " . $parkod . "_" . $periode ."_". $societe);
+
         $debutMois = $periode . '-01';
         $finMois   = date('Y-m-t', strtotime($debutMois));
 
@@ -227,10 +270,18 @@ class FileProcessor
                     ["nom" => $row['MARQUE']],
                     ["nom" => $row['MARQUE']]
                 );
-                $ARTICLE = Article::updateOrCreate(
-                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
-                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'ean' => $row['EAN'], 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
-                );
+
+                if($row['EAN']){
+                    $ARTICLE = Article::updateOrCreate(
+                        ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
+                        ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'ean' => $row['EAN'], 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                    );
+                }else{
+                    $ARTICLE = Article::updateOrCreate(
+                        ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
+                        ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                    );
+                }
 
                 //avoir stock
                 $STOCK = $this->findOrCreateStockMensuel($row['PARKOD'], $PERIODE_MVT, $row['SOCIETE']);
@@ -407,6 +458,22 @@ class FileProcessor
                         'qte_cloture' => $row['QTE'],
                         'val_cloture' => $row['MONTANT_IN_OUT'],
                         'pamp_cloture' => $row['PAMP'] > 0 ? round($row['MONTANT_IN_OUT'] / $row['QTE'], 4) : 0,
+                    ]
+                );
+
+                // creation du stock virtuel soeur du code stock (ADV / COSMA)
+                $code_stock_siblings =  ($row['SOCIETE'] == "ADV") ? "COSMA" : "ADV";  
+                StockMensuel::firstOrCreate(
+                    ['parkod' => $row['PARKOD'], 'periode' => $PERIODE_MVT, 'code_stock' => $code_stock_siblings],
+                    [
+                        'qte_ouverture' => 0,
+                        'val_ouverture' => 0,
+                        'qte_in' => 0, 'val_in' => 0,
+                        'qte_out' => 0, 'val_out' => 0,
+                        'qte_stk' => 0, 'val_stk' => 0,
+                        'qte_cloture' => 0,
+                        'val_cloture' => 0,
+                        'pamp_cloture' => 0,
                     ]
                 );
             }
