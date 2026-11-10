@@ -160,17 +160,17 @@ class FileProcessor
         $STOCK->qte_out = $agg->qte_out ?? 0;
         $STOCK->val_out = $agg->val_out ?? 0;
 
-        // dernier état Winparf du mois (instantané, pas un cumul)
-        $stk = EtatStockWinparf::query()
+        $ecart = EtatStockWinparf::query()
             ->where('code_stock', $societe)
             ->whereBetween('date_comptable', [$debutMois, $finMois])
             ->whereHas('mouvementBrut', fn ($q) => $q->where('parkod', $parkod))
-            ->orderByDesc('date_comptable')
+            ->selectRaw('COALESCE(SUM(qte), 0) as qte, COALESCE(SUM(valeur), 0) as valeur')
+            ->toBase()
             ->first();
 
-        // faire le calcule de l'ecart (dans cette table, on a des + ou - [inventaire], a la somme des ligne on aura a la fin des + ou -)
-        $STOCK->qte_stk += $stk->qte    ?? 0;
-        $STOCK->val_stk += $stk->valeur ?? 0;
+        // somnme des ecarts de stock de la periode
+        $STOCK->qte_stk = $ecart->qte ?? 0;
+        $STOCK->val_stk = $ecart->valeur ?? 0;
 
         // application de la formule [qte_cloture = qte_ouverture + qte_in + qte_out(negatif) + qte_stk( + ou -)] 
         $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out + $STOCK->qte_stk;
