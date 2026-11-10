@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('parkod', 12)->unique();
             $table->foreignId('marque_id')->constrained('marques');
+            $table->string('ean', 15)->nullable();
             $table->text('description')->nullable();
             $table->decimal('paht', 12, 4)->unsigned()->default(0)->comment('Prix d\'achat hors taxe');
             $table->boolean('actif')->default(true);
