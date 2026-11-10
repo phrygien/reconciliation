@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'mag_orig',
     'mag_dest',
     'parkod',
+    'ean',
     'qte',
     'montant',
     'paht',

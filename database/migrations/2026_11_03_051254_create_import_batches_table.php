@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('nom_fichier');
             $table->integer('nb_ligne');
-            $table->string('statut');
+            $table->string('statut')->default(null);
             $table->string('importe_le');
             $table->string('date_min');
             $table->string('date_max');

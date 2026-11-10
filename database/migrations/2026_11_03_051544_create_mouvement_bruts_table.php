@@ -22,6 +22,7 @@ return new class extends Migration
             $table->char('mag_orig', 10)->nullable();
             $table->char('mag_dest', 10)->nullable();
             $table->string('parkod', 12)->nullable();
+            $table->string('ean', 15)->nullable();
             $table->integer('qte')->nullable()->comment('Quantité signée');
             $table->decimal('montant', 14, 4)->nullable();
             $table->decimal('paht', 12, 4)->nullable()->comment('Prix d\'achat hors taxe');

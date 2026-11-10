@@ -224,7 +224,7 @@ class FileProcessor
                 );
                 $ARTICLE = Article::updateOrCreate(
                     ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
-                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'ean' => $row['EAN'], 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
                 );
 
                 //avoir stock
@@ -272,6 +272,7 @@ class FileProcessor
                         'mag_orig' => $row['MAG_ORIG'],
                         'mag_dest' => $row['MAG_DEST'],
                         'parkod' => $row['PARKOD'],
+                        'ean' => $row['EAN'],
                         'qte' => $row['QTE'],
                         'montant' => $row['MONTANT_IN_OUT'],
                         'paht' => $row['PAHT'],
@@ -380,7 +381,7 @@ class FileProcessor
                 );
                 $ARTICLE = Article::updateOrCreate(
                     ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
-                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
+                    ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'ean' => $row['EAN'], 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
                 );
 
                 //avoir la periode
