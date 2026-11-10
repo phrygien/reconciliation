@@ -72,6 +72,7 @@ class StockMensuelsRelationManager extends RelationManager
             ->defaultGroup('periode')
             ->defaultSort('code_stock')
             ->striped()
+            ->summaries(pageCondition: false, allTableCondition: false)
             ->columns([
                 TextColumn::make('periode')
                     ->label('Période')

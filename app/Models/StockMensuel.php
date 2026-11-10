@@ -75,6 +75,18 @@ class StockMensuel extends Model
     }
 
     /**
+     * Clôtures dont la quantité ou la valeur ne correspond pas au calcul.
+     * Même formule que qteClotureTheorique() / valClotureTheorique().
+     */
+    public function scopeIncoherents(Builder $query): Builder
+    {
+        return $query->whereRaw(
+            '(qte_cloture <> qte_ouverture + qte_in - qte_out + qte_stk
+              OR ROUND(val_cloture, 4) <> ROUND(val_ouverture + val_in - val_out + val_stk, 4))'
+        );
+    }
+
+    /**
      * Quantité de clôture théorique : ouverture + entrées - sorties + écarts d'inventaire.
      * Les sorties (qte_out) sont supposées stockées en valeur positive.
      */
@@ -92,9 +104,25 @@ class StockMensuel extends Model
         );
     }
 
+    /**
+     * Écart quantité = clôture réelle - clôture théorique (0 = cohérent).
+     */
+    public function qteEcart(): int
+    {
+        return $this->qte_cloture - $this->qteClotureTheorique();
+    }
+
+    /**
+     * Écart valeur = clôture réelle - clôture théorique (0.0000 = cohérent).
+     */
+    public function valEcart(): string
+    {
+        return bcsub($this->val_cloture, $this->valClotureTheorique(), 4);
+    }
+
     public function estCoherent(): bool
     {
-        return $this->qte_cloture === $this->qteClotureTheorique()
-            && bccomp($this->val_cloture, $this->valClotureTheorique(), 4) === 0;
+        return $this->qteEcart() === 0
+            && bccomp($this->valEcart(), '0', 4) === 0;
     }
 }
