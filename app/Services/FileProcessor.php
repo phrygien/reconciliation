@@ -15,6 +15,7 @@ use App\Models\TypeMouvement;
 use App\Models\EtatStockWinparf;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Exception;
 
 class FileProcessor
@@ -210,9 +211,13 @@ class FileProcessor
                 'nb_ligne' => count($rows)
             ]);
 
+            Log::channel('stderr')->info(count($rows) . " ligne(s)");
+
             DB::beginTransaction();
 
             foreach($rows as $row){
+
+                Log::channel('stderr')->info($row['PARKOD']); 
 
                 //avoir la periode
                 $PERIODE_MVT = substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2);
@@ -373,7 +378,11 @@ class FileProcessor
                 ['SEQUENCE', 'asc'],
             ])->values()->all(); 
 
+            Log::channel('stderr')->info(count($rows) . " ligne(s)");
+
             foreach($rows as $row){
+                Log::channel('stderr')->info($row['PARKOD']);                
+
                 //creation marque | creation/modification article
                 $MARQUE = Marque::firstOrCreate(
                     ["nom" => $row['MARQUE']],
