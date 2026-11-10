@@ -37,6 +37,14 @@ class ArticlesTable
                     ->badge()
                     ->color('gray'),
 
+                TextColumn::make('ean')
+                    ->label('EAN')
+                    ->searchable(isIndividual: true)
+                    ->sortable()
+                    ->copyable()
+                    ->copyMessage('EAN copié')
+                    ->weight('medium'),
+
                 TextColumn::make('description')
                     ->label('Description')
                     ->searchable(isIndividual: true)
