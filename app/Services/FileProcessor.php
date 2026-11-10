@@ -41,7 +41,7 @@ class FileProcessor
         if ($periode->periode < $annee_mois) {
             Log::channel('stderr')->info($periode->periode . " < " . $annee_mois); 
             $this->cloturerPeriode($periode);
-            Periode::firstOrCreate(['periode' => $annee_mois], ['statut' => 'OUVERTE']);
+            $this->ouvrirPeriode($annee_mois, $periode->periode);
         }
 
         //---------------------------//
@@ -119,6 +119,44 @@ class FileProcessor
         $periode->statut = 'CLOTUREE';
         $periode->cloture_le = now();
         $periode->save();
+    }
+
+    private function ouvrirPeriode(string $new_periode, string $prev_periode): void
+    {
+        Log::channel('stderr')->info("initialisation de l'ouverture de la période : {$new_periode} (qte_ouverture_n = qte_cloture_n-1)");
+
+        Periode::firstOrCreate(['periode' => $new_periode], ['statut' => 'OUVERTE']);
+
+        // ouvrir TOUS les stocks de la nouvelle période à partir de la clôture précédente
+        StockMensuel::where('periode', $prev_periode)
+            ->get(['parkod', 'code_stock', 'qte_cloture', 'val_cloture'])
+            ->each(function ($s) use ($new_periode) {
+                $qte = $s->qte_cloture;
+                $val = $s->val_cloture;
+
+                Log::channel('stderr')->info("Creation Stock Mensuel : " . $s->parkod . "_" . $new_periode ."_". $s->code_stock);
+
+                StockMensuel::firstOrCreate(
+                    // clé d'unicité : on ne recrée pas une ligne déjà existante
+                    [
+                        'parkod'     => $s->parkod,
+                        'periode'    => $new_periode,
+                        'code_stock' => $s->code_stock,
+                    ],
+                    [
+                        'qte_ouverture' => $qte,
+                        'val_ouverture' => $val,
+                        'qte_in'  => 0, 'val_in'  => 0,
+                        'qte_out' => 0, 'val_out' => 0,
+                        'qte_stk' => 0, 'val_stk' => 0,
+                        'qte_cloture'  => $qte,
+                        'val_cloture'  => $val,
+                        'pamp_cloture' => $qte > 0 ? round($val / $qte, 4) : 0,
+                    ]
+                );
+            });
+
+        Log::channel('stderr')->info("l'ouverture de la période : {$new_periode} OK");
     }
 
     // lecture
