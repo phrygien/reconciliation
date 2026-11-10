@@ -3,7 +3,6 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Magasin;
-use App\Models\Periode;
 use App\Models\StockMensuel;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -18,9 +17,10 @@ class TopMagasinsStockWidget extends BaseWidget
 
     protected static ?string $heading = 'TOP magasins par stock';
 
+    /** Dernière période ayant du stock, ouverte ou clôturée. */
     private function periode(): ?string
     {
-        return Periode::ouvertes()->orderByDesc('periode')->value('periode');
+        return StockMensuel::query()->max('periode');
     }
 
     public function table(Table $table): Table
