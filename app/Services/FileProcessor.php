@@ -309,7 +309,7 @@ class FileProcessor
                     ["nom" => $row['MARQUE']]
                 );
 
-                if($row['EAN']){
+                if($row['EAN'] != ""){
                     $ARTICLE = Article::updateOrCreate(
                         ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
                         ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'ean' => $row['EAN'], 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
