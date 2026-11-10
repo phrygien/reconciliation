@@ -61,9 +61,6 @@ class ArticlesTable
                     ->sortable()
                     ->alignEnd(),
 
-                ToggleColumn::make('actif')
-                    ->label('Actif'),
-
                 TextColumn::make('created_at')
                     ->label('Créé le')
                     ->dateTime('d/m/Y H:i')
@@ -83,12 +80,6 @@ class ArticlesTable
                     ->searchable()
                     ->preload()
                     ->multiple(),
-
-                TernaryFilter::make('actif')
-                    ->label('Statut')
-                    ->placeholder('Tous')
-                    ->trueLabel('Actifs')
-                    ->falseLabel('Inactifs'),
             ])
             ->recordActions([
                 ViewAction::make(),

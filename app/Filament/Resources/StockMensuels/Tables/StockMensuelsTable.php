@@ -35,6 +35,7 @@ class StockMensuelsTable
         string $label,
         bool $gras = false,
         string $labelTotal = 'Total',
+        bool $cache = false,
     ): TextColumn {
         return TextColumn::make($alias)
             ->label($label)
@@ -44,6 +45,7 @@ class StockMensuelsTable
             ->weight($gras ? 'bold' : null)
             ->alignEnd()
             ->sortable()
+            ->toggleable(isToggledHiddenByDefault: $cache)
             ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 0, locale: 'fr'));
     }
 
@@ -76,6 +78,7 @@ class StockMensuelsTable
         foreach ($societes as $code => $libelle) {
             $groupesSocietes[] = ColumnGroup::make(($libelle ?: $code) . " ({$code})", [
                 self::colonneQte("s{$i}_qte", 'Qté', gras: true),
+                self::colonneQte("s{$i}_stk", 'Écart inv.'),
                 self::colonneVal("s{$i}_val", 'Valeur'),
             ])->alignCenter();
             $i++;
@@ -92,12 +95,15 @@ class StockMensuelsTable
                 foreach (array_keys($societes) as $code) {
                     $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_cloture END), 0) as s{$i}_qte";
                     $bindings[] = $code;
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_stk END), 0) as s{$i}_stk";
+                    $bindings[] = $code;
                     $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN val_cloture END), 0) as s{$i}_val";
                     $bindings[] = $code;
                     $i++;
                 }
 
                 $selects[] = 'COALESCE(SUM(qte_cloture), 0) as t_qte';
+                $selects[] = 'COALESCE(SUM(qte_stk), 0) as t_stk';
                 $selects[] = 'COALESCE(SUM(val_cloture), 0) as t_val';
 
                 return $query
@@ -141,6 +147,7 @@ class StockMensuelsTable
 
                 ColumnGroup::make($labelTotal, [
                     self::colonneQte('t_qte', 'Qté clôture', gras: true, labelTotal: $labelTotal),
+                    self::colonneQte('t_stk', 'Écart inv.', labelTotal: $labelTotal),
                     self::colonneVal('t_val', 'Valeur', labelTotal: $labelTotal),
                 ])->alignCenter(),
             ])
