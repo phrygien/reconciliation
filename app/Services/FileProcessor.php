@@ -402,25 +402,55 @@ class FileProcessor
                     }
                 }
                 if($row['IN_OUT'] == "STK"){
-                    $INV_WP = EtatStockWinparf::updateOrCreate(
-                        ['mouvement_brut_id' =>  $MVT_BRUT->id],
+
+                    //Application du prorata (repartition du stock en 50-50 entre ADV et COSMA)
+                    $signe = ($row['QTE'] > 0) ? 1 : -1;
+                    $qte = abs($row['QTE']);
+                    $val_unit = abs($row['MONTANT_IN_OUT'])/$qte;
+
+                    $qte_cosma = intdiv($qte, 2);
+                    $qte_adv = $qte - $qte_cosma;
+
+                    //creattion du etat stock de winparf
+                    $INV_WP_ADV = EtatStockWinparf::updateOrCreate(
+                        ['mouvement_brut_id' =>  $MVT_BRUT->id, 'code_stock' => "ADV"],
                         [
-                            'mouvement_brut_id' => $MVT_BRUT->id,
-                            'code_stock' => $row['SOCIETE'],
-                            'qte' => $row['QTE'],
-                            'valeur' => $row['MONTANT_IN_OUT'],
+                            'qte' => $qte_adv * $signe,
+                            'valeur' => $val_unit * $qte_adv * $signe,
                             'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
                         ]
                     );
-                    //mise a jour du stock mensuel (invetaire fixe sur winparf)
-                    $STOCK->qte_stk = $row['QTE'];
-                    $STOCK->val_stk = $row['MONTANT_IN_OUT'];
+
+                    $INV_WP_COSMA = EtatStockWinparf::updateOrCreate(
+                        ['mouvement_brut_id' =>  $MVT_BRUT->id, 'code_stock' => "COSMA"],
+                        [
+                            'qte' => $qte_cosma * $signe,
+                            'valeur' => $val_unit * $qte_cosma * $signe,
+                            'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                        ]
+                    );
+
+                    // mettre en touche le siblings pour recalculer le stock mensuel (dual verification/calculation)
+                    $siblings = ($row['SOCIETE'] == "ADV") ? "COSMA" : "ADV";
+                    $touches[$row['PARKOD'] . '|' . $PERIODE_MVT . '|' . $siblings] = [
+                        'parkod'  => $row['PARKOD'],
+                        'periode' => $PERIODE_MVT,
+                        'societe' => $siblings,
+                    ];
+
+                    // $INV_WP = EtatStockWinparf::updateOrCreate(
+                    //     ['mouvement_brut_id' =>  $MVT_BRUT->id],
+                    //     [
+                    //         'mouvement_brut_id' => $MVT_BRUT->id,
+                    //         'code_stock' => $row['SOCIETE'],
+                    //         'qte' => $row['QTE'],
+                    //         'valeur' => $row['MONTANT_IN_OUT'],
+                    //         'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                    //     ]
+                    // );
                 }
 
-                //calcule du stock de cloture
-                $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out;
-                $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out;
-                $STOCK->pamp_cloture = $STOCK->qte_cloture > 0 ? round($STOCK->val_cloture / $STOCK->qte_cloture, 4) : 0;
+                //sauvegarde des mouvement in et out
                 $STOCK->save();
 
                 // mettre en touche pour recalculer le stock mensuel (dual verification/calculation)
