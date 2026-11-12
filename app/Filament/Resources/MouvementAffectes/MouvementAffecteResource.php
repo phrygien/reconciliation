@@ -26,6 +26,12 @@ class MouvementAffecteResource extends Resource
 
     protected static ?string $model = MouvementAffecte::class;
 
+    protected static ?string $navigationLabel = 'Mouvement IN OUT';
+
+    protected static ?string $modelLabel = 'Mouvement IN OUT';
+
+    protected static ?string $pluralModelLabel = 'Mouvement IN OUT';
+
     protected static string|BackedEnum|null $navigationIcon = Phosphor::ListDashes;
 
     protected static ?string $recordTitleAttribute = 'mode_affect';
