@@ -15,8 +15,7 @@ services:
             central-stock-db:
                 condition: service_healthy
         volumes:
-            - central-stock-storage:/var/www/html/storage
-            - central-stock-winparf:/var/www/html/storage/depot_winparf/received
+            - ./storage:/var/www/html/storage
         networks:
             - central-stock-net
             - traefik-public
@@ -57,11 +56,9 @@ services:
             - "2222:22"
         command: ${SFTP_USER}:${SFTP_PASSWORD}:82:82
         volumes:
-            - central-stock-winparf:/home/${SFTP_USER}/received
+            - ./storage/app/private/depot_winparf/received:/home/${SFTP_USER}/received
             - ./sftp-keys/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
             - ./sftp-keys/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
 
 volumes:
-    central-stock-storage:
     central-stock-db-data:
-    central-stock-winparf:

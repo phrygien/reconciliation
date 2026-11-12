@@ -3,6 +3,10 @@ set -e
 
 cd /var/www/html
 
+mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
+mkdir -p storage/app/private/depot_winparf/received storage/app/private/depot_winparf/processed storage/app/private/depot_winparf/failed storage/app/private/depot_winparf/init
+mkdir -p storage/app/public
+
 php artisan storage:link --force || true
 php artisan filament:assets || true
 php artisan config:cache
