@@ -7,6 +7,7 @@ use App\Models\WinparfImportLog;
 use BackedEnum;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ViewEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
@@ -35,31 +36,14 @@ class WinparfImportLogResource extends Resource
             TextEntry::make('files')
                 ->label('Fichiers')
                 ->columnSpanFull(),
-            TextEntry::make('status')
-                ->label('Statut')
-                ->badge()
-                ->color(fn (?string $state): string => match ($state) {
-                    'running' => 'warning',
-                    'success' => 'success',
-                    default => 'danger',
-                }),
-            TextEntry::make('exit_code')
-                ->label('Code retour')
-                ->placeholder('-'),
             TextEntry::make('started_at')
                 ->label('Début')
-                ->dateTime('d/m/Y H:i:s'),
-            TextEntry::make('finished_at')
-                ->label('Fin')
                 ->dateTime('d/m/Y H:i:s')
-                ->placeholder('-'),
-            TextEntry::make('output')
-                ->label('Sortie de app:import-winparf-file')
-                ->placeholder('Aucune sortie')
-                ->columnSpanFull()
-                ->extraAttributes([
-                    'style' => 'white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 60vh; overflow: auto;',
-                ]),
+                ->columnSpanFull(),
+            ViewEntry::make('live')
+                ->hiddenLabel()
+                ->view('filament.winparf-log-live')
+                ->columnSpanFull(),
         ]);
     }
 
@@ -98,7 +82,9 @@ class WinparfImportLogResource extends Resource
             ->recordActions([
                 ViewAction::make()
                     ->label('Voir le log')
-                    ->modalWidth('5xl'),
+                    ->modalWidth('5xl')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Fermer'),
             ]);
     }
 
