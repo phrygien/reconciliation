@@ -2,7 +2,7 @@ networks:
     traefik-public:
         external: true
     central-stock-net:
-        driver: bridge
+        external: true
 
 services:
     central-stock-app:
