@@ -58,8 +58,7 @@ class StockMensuelsTable
             ->color(fn ($state) => self::couleur($state))
             ->weight($gras ? 'bold' : null)
             ->alignEnd()
-            ->sortable()
-            ->toggleable();
+            ->sortable();
     }
 
     /** Colonne mouvement (IN / OUT) avec couleur fixe. */
@@ -71,11 +70,10 @@ class StockMensuelsTable
             ->placeholder('0')
             ->color(fn ($state) => $state ? $couleur : 'gray')
             ->alignEnd()
-            ->sortable()
-            ->toggleable();
+            ->sortable();
     }
 
-    /** Colonne valeur (masquée par défaut). */
+    /** Colonne valeur. */
     private static function colonneVal(string $alias, string $label, ?string $couleur = null): TextColumn
     {
         $colonne = TextColumn::make($alias)
@@ -83,8 +81,7 @@ class StockMensuelsTable
             ->numeric(decimalPlaces: 2, locale: 'fr')
             ->placeholder('0,00')
             ->alignEnd()
-            ->sortable()
-            ->toggleable(isToggledHiddenByDefault: true);
+            ->sortable();
 
         if ($couleur !== null) {
             $colonne->color(fn ($state) => $state ? $couleur : 'gray');
@@ -95,8 +92,7 @@ class StockMensuelsTable
 
     /**
      * Requête de l'export : UN seul scan de stock_mensuels (table dérivée
-     * agrégée par article) joint aux articles, au lieu de dizaines de
-     * sous-requêtes corrélées par ligne.
+     * agrégée par article) joint aux articles.
      *
      * @param array<string, string> $societes code_stock => libellé
      */
@@ -164,20 +160,13 @@ class StockMensuelsTable
         $labelTotal = 'Total stock dépôt centrale';
 
         return $table
-            ->modifyQueryUsing(function (Builder $query, $livewire) use ($societes) {
-                // Ne calcule en SQL que les colonnes réellement affichées.
-                $visible = fn (string $nom): bool => ! method_exists($livewire, 'isTableColumnToggledHidden')
-                    || ! $livewire->isTableColumnToggledHidden($nom);
-
+            ->modifyQueryUsing(function (Builder $query) use ($societes) {
                 $selects = ['MIN(id) as id', 'periode', 'parkod'];
                 $bindings = [];
 
                 $i = 0;
                 foreach (array_keys($societes) as $code) {
                     foreach (self::METRIQUES as $alias => $col) {
-                        if (! $visible("s{$i}_{$alias}")) {
-                            continue;
-                        }
                         $selects[] = "SUM(CASE WHEN code_stock = ? THEN {$col} ELSE 0 END) as s{$i}_{$alias}";
                         $bindings[] = $code;
                     }
@@ -185,9 +174,7 @@ class StockMensuelsTable
                 }
 
                 foreach (self::METRIQUES as $alias => $col) {
-                    if ($visible("t_{$alias}")) {
-                        $selects[] = "SUM({$col}) as t_{$alias}";
-                    }
+                    $selects[] = "SUM({$col}) as t_{$alias}";
                 }
 
                 return $query
@@ -217,8 +204,7 @@ class StockMensuelsTable
                     ->badge()
                     ->color(fn ($record) => $record->periodeRef?->estOuverte() ? 'success' : 'gray')
                     ->searchable()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->sortable(),
 
                 TextColumn::make('parkod')
                     ->label('Code article')
