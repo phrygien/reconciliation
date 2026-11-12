@@ -4,9 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
@@ -42,7 +42,7 @@ class MouvementAffecte extends Model
 
     public function mouvementBrut(): BelongsTo
     {
-        return $this->belongsTo(MouvementBrut::class);
+        return $this->belongsTo(MouvementBrut::class, 'mouvement_brut_id');
     }
 
     public function societe(): BelongsTo
@@ -74,6 +74,7 @@ class MouvementAffecte extends Model
     {
         return Attribute::get(fn () => $this->qte >= 0 ? 'IN' : 'OUT');
     }
+
     public function mouvementBrutLie(): HasMany
     {
         return $this->hasMany(MouvementBrut::class, 'id', 'mouvement_brut_id');
@@ -83,5 +84,41 @@ class MouvementAffecte extends Model
     {
         return $this->hasMany(StockMensuel::class, 'code_stock', 'code_stock')
             ->where('parkod', $this->mouvementBrut?->parkod);
+    }
+
+    /** États stock WinParf liés directement au mouvement brut. */
+    public function etatsStockWinparf(): HasMany
+    {
+        return $this->hasMany(EtatStockWinparf::class, 'mouvement_brut_id', 'mouvement_brut_id');
+    }
+
+    /**
+     * 1) état lié directement (même mouvement brut + même code_stock)
+     * 2) sinon, dernier état du même article (parkod) et du même code_stock,
+     *    à une date <= date_comptable.
+     */
+    protected function etatStockWinparf(): Attribute
+    {
+        return Attribute::get(function () {
+            $direct = $this->etatsStockWinparf->firstWhere('code_stock', $this->code_stock);
+
+            if ($direct) {
+                return $direct;
+            }
+
+            $parkod = $this->mouvementBrut?->parkod;
+
+            if (! $parkod || ! $this->date_comptable) {
+                return null;
+            }
+
+            return EtatStockWinparf::query()
+                ->where('code_stock', $this->code_stock)
+                ->whereDate('date_comptable', '<=', $this->date_comptable->toDateString())
+                ->whereHas('mouvementBrut', fn (Builder $q) => $q->where('parkod', $parkod))
+                ->orderByDesc('date_comptable')
+                ->orderByDesc('stock_winparf_id')
+                ->first();
+        });
     }
 }

@@ -32,7 +32,7 @@ class EtatStockWinparf extends Model
 
     public function mouvementBrut(): BelongsTo
     {
-        return $this->belongsTo(MouvementBrut::class);
+        return $this->belongsTo(MouvementBrut::class, 'mouvement_brut_id');
     }
 
     public function societe(): BelongsTo

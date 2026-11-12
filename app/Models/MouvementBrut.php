@@ -72,4 +72,9 @@ class MouvementBrut extends Model
     {
         return $this->hasMany(MouvementAffecte::class);
     }
+
+    public function etatsStockWinparf(): HasMany
+    {
+        return $this->hasMany(EtatStockWinparf::class);
+    }
 }
