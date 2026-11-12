@@ -32,14 +32,32 @@ RUN apk add --no-cache nginx supervisor \
     && sed -i 's/^user .*/user www-data;/' /etc/nginx/nginx.conf \
     && rm -f /etc/nginx/http.d/default.conf
 
+# Configuration PHP (le timeout par défaut de 30 s provoquait le 500)
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && { \
         echo "memory_limit=512M"; \
+        echo "max_execution_time=120"; \
+        echo "max_input_time=120"; \
         echo "upload_max_filesize=64M"; \
         echo "post_max_size=64M"; \
         echo "opcache.enable=1"; \
         echo "opcache.validate_timestamps=0"; \
+        echo "opcache.memory_consumption=192"; \
+        echo "opcache.max_accelerated_files=20000"; \
+        echo "realpath_cache_size=4096K"; \
+        echo "realpath_cache_ttl=600"; \
     } > "$PHP_INI_DIR/conf.d/zz-app.ini"
+
+# Pool PHP-FPM : timeout aligné sur nginx (zzz- pour passer après zz-docker.conf)
+RUN { \
+        echo "[www]"; \
+        echo "request_terminate_timeout = 120s"; \
+        echo "pm = dynamic"; \
+        echo "pm.max_children = 10"; \
+        echo "pm.start_servers = 3"; \
+        echo "pm.min_spare_servers = 2"; \
+        echo "pm.max_spare_servers = 5"; \
+    } > /usr/local/etc/php-fpm.d/zzz-app.conf
 
 COPY docker/nginx.conf /etc/nginx/http.d/app.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
