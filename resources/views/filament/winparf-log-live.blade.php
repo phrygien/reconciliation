@@ -1,12 +1,13 @@
 @php
     $log = \App\Models\WinparfImportLog::find($getRecord()->id);
-    $running = $log?->status === 'running';
-    $label = match ($log?->status) {
+    $stalled = $log?->status === 'running' && $log->updated_at?->lt(now()->subMinutes(5));
+    $running = $log?->status === 'running' && ! $stalled;
+    $label = $stalled ? 'Interrompu' : match ($log?->status) {
         'running' => 'En cours',
         'success' => 'Terminé',
         default => 'Échec',
     };
-    $color = match ($log?->status) {
+    $color = $stalled ? '#dc2626' : match ($log?->status) {
         'running' => '#d97706',
         'success' => '#16a34a',
         default => '#dc2626',
