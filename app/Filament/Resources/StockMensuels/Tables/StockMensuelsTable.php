@@ -9,7 +9,6 @@ use App\Models\Societe;
 use Filament\Actions\ExportAction;
 use Filament\Tables\Columns\ColumnGroup;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\PaginationMode;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Grouping\Group;
@@ -197,7 +196,6 @@ class StockMensuelsTable
             ->defaultSort('parkod')
             ->striped()
             ->persistFiltersInSession()
-            ->deferLoading()
             ->columns([
                 TextColumn::make('periode')
                     ->label('Période')
@@ -280,7 +278,6 @@ class StockMensuelsTable
                     )),
             ])
             ->emptyStateHeading('Aucun stock mensuel')
-            ->paginationMode(PaginationMode::Simple)
             ->paginated([25, 50, 100])
             ->defaultPaginationPageOption(25);
     }
