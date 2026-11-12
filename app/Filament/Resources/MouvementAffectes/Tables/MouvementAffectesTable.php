@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\MouvementAffectes\Tables;
 
 use App\Filament\Exports\MouvementAffecteExporter;
-use App\Models\EtatStockWinparf;
 use App\Models\MouvementAffecte;
 use Filafly\Icons\Phosphor\Enums\Phosphor;
 use Filament\Actions\BulkActionGroup;
@@ -19,18 +18,13 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\HtmlString;
 
 class MouvementAffectesTable
 {
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with([
-                'societe',
-                'mouvementBrut.article',
-                'etatsStockWinparf',
-            ]))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['societe', 'mouvementBrut.article']))
             ->defaultSort(fn (Builder $query) => $query
                 ->orderByRaw('(qte < 0) asc')   // IN d'abord, puis OUT
                 ->orderByDesc('date_comptable')
@@ -69,14 +63,7 @@ class MouvementAffectesTable
 
                 TextColumn::make('mouvementBrut.parkod')
                     ->label('Article')
-                    ->description(function (MouvementAffecte $record, $livewire) {
-                        $desc = e($record->mouvementBrut?->article?->description ?? '');
-                        $ligne = self::ligneStockWinparf($record, $livewire);
-
-                        return new HtmlString(
-                            $desc . '<br><span style="font-size:.75rem;opacity:.75;">' . e($ligne) . '</span>'
-                        );
-                    })
+                    ->description(fn (MouvementAffecte $record) => $record->mouvementBrut?->article?->description)
                     ->weight('medium')
                     ->copyable()
                     ->searchable(isIndividual: true),
@@ -165,19 +152,6 @@ class MouvementAffectesTable
                     ])
                     ->multiple(),
 
-                Filter::make('avec_stock_winparf')
-                    ->label('Avec état stock WinParf')
-                    ->toggle()
-                    ->query(fn (Builder $query) => $query->whereExists(
-                        fn ($q) => $q->selectRaw('1')
-                            ->from('etat_stock_winparf as e')
-                            ->join('mouvement_bruts as eb', 'eb.id', '=', 'e.mouvement_brut_id')
-                            ->join('mouvement_bruts as mb', 'mb.id', '=', 'mouvement_affectes.mouvement_brut_id')
-                            ->whereColumn('e.code_stock', 'mouvement_affectes.code_stock')
-                            ->whereColumn('eb.parkod', 'mb.parkod')
-                            ->whereColumn('e.date_comptable', '<=', 'mouvement_affectes.date_comptable')
-                    )),
-
                 Filter::make('date_comptable')
                     ->label('Date comptable')
                     ->schema([
@@ -205,60 +179,5 @@ class MouvementAffectesTable
             ->emptyStateHeading('Aucun mouvement affecté')
             ->paginated([25, 50, 100])
             ->defaultPaginationPageOption(50);
-    }
-
-    /**
-     * Texte "Stock WinParf" : état direct (même mouvement brut + code_stock),
-     * sinon dernier état du même article/code_stock à date <= date_comptable.
-     * Les états de repli de la page sont chargés en une seule requête.
-     */
-    private static function ligneStockWinparf(MouvementAffecte $record, $livewire): string
-    {
-        $etat = $record->etatsStockWinparf->firstWhere('code_stock', $record->code_stock)
-            ?? self::etatRepli($record, $livewire);
-
-        if (! $etat) {
-            return 'Stock WinParf : —';
-        }
-
-        return 'Stock WinParf : qté '
-            . number_format((int) $etat->qte, 0, ',', ' ')
-            . ' · valeur '
-            . number_format((float) $etat->valeur, 2, ',', ' ');
-    }
-
-    private static function etatRepli(MouvementAffecte $record, $livewire): ?EtatStockWinparf
-    {
-        static $cache = [];
-
-        $pageKey = spl_object_id($livewire) . ':' . md5(json_encode($livewire->getTableRecords()->pluck('id')));
-
-        if (! isset($cache[$pageKey])) {
-            $records = $livewire->getTableRecords();
-
-            $parkods = $records->map(fn ($r) => $r->mouvementBrut?->parkod)->filter()->unique()->values();
-            $codes = $records->pluck('code_stock')->unique()->values();
-
-            $etats = EtatStockWinparf::query()
-                ->join('mouvement_bruts', 'mouvement_bruts.id', '=', 'etat_stock_winparf.mouvement_brut_id')
-                ->whereIn('mouvement_bruts.parkod', $parkods)
-                ->whereIn('etat_stock_winparf.code_stock', $codes)
-                ->select('etat_stock_winparf.*', 'mouvement_bruts.parkod as parkod_article')
-                ->orderByDesc('etat_stock_winparf.date_comptable')
-                ->orderByDesc('etat_stock_winparf.stock_winparf_id')
-                ->get();
-
-            $cache = [$pageKey => $etats->groupBy(fn ($e) => $e->parkod_article . '|' . $e->code_stock)];
-        }
-
-        $parkod = $record->mouvementBrut?->parkod;
-
-        if (! $parkod || ! $record->date_comptable) {
-            return null;
-        }
-
-        return $cache[$pageKey]
-            ->get($parkod . '|' . $record->code_stock)
-            ?->first(fn ($e) => $e->date_comptable <= $record->date_comptable);
     }
 }
