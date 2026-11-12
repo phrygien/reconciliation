@@ -6,6 +6,8 @@ use App\Filament\Resources\MouvementBruts\Pages\CreateMouvementBrut;
 use App\Filament\Resources\MouvementBruts\Pages\EditMouvementBrut;
 use App\Filament\Resources\MouvementBruts\Pages\ListMouvementBruts;
 use App\Filament\Resources\MouvementBruts\Pages\ViewMouvementBrut;
+use App\Filament\Resources\MouvementBruts\RelationManagers\AffectationsRelationManager;
+use App\Filament\Resources\MouvementBruts\RelationManagers\EtatsStockWinparfRelationManager;
 use App\Filament\Resources\MouvementBruts\Schemas\MouvementBrutForm;
 use App\Filament\Resources\MouvementBruts\Schemas\MouvementBrutInfolist;
 use App\Filament\Resources\MouvementBruts\Tables\MouvementBrutsTable;
@@ -47,7 +49,8 @@ class MouvementBrutResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            EtatsStockWinparfRelationManager::class,
+            AffectationsRelationManager::class
         ];
     }
 
