@@ -19,6 +19,12 @@ use Illuminate\Database\Eloquent\Builder;
 
 class StockMensuelsTable
 {
+    /**
+     * Séparateur vertical entre deux groupes (bordure gauche).
+     * rgba pour rester lisible en mode clair et sombre.
+     */
+    private const SEPARATEUR = 'border-left: 2px solid rgba(128, 128, 128, 0.55);';
+
     private static function couleur(mixed $state): string
     {
         return match (true) {
@@ -27,6 +33,16 @@ class StockMensuelsTable
             $state == 0 => 'gray',
             default => 'success',
         };
+    }
+
+    /**
+     * Ajoute la bordure gauche sur une colonne (en-tête + cellules).
+     */
+    private static function avecSeparateur(TextColumn $colonne): TextColumn
+    {
+        return $colonne
+            ->extraHeaderAttributes(['style' => self::SEPARATEUR])
+            ->extraCellAttributes(['style' => self::SEPARATEUR]);
     }
 
     private static function colonneQte(
@@ -48,13 +64,38 @@ class StockMensuelsTable
             ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 0, locale: 'fr'));
     }
 
+    /**
+     * Colonne de mouvement quantité (IN / OUT) avec couleur fixe.
+     */
+    private static function colonneMvt(
+        string $alias,
+        string $label,
+        string $couleur,
+        string $labelTotal = 'Total',
+        bool $cache = false,
+    ): TextColumn {
+        return TextColumn::make($alias)
+            ->label($label)
+            ->numeric(decimalPlaces: 0, locale: 'fr')
+            ->placeholder('0')
+            ->color(fn ($state) => $state ? $couleur : 'gray')
+            ->alignEnd()
+            ->sortable()
+            ->toggleable(isToggledHiddenByDefault: $cache)
+            ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 0, locale: 'fr'));
+    }
+
+    /**
+     * Colonne valeur. Couleur optionnelle (utilisée pour Val. IN / Val. OUT).
+     */
     private static function colonneVal(
         string $alias,
         string $label,
         bool $cache = true,
         string $labelTotal = 'Total',
+        ?string $couleur = null,
     ): TextColumn {
-        return TextColumn::make($alias)
+        $colonne = TextColumn::make($alias)
             ->label($label)
             ->numeric(decimalPlaces: 2, locale: 'fr')
             ->placeholder('0,00')
@@ -62,11 +103,18 @@ class StockMensuelsTable
             ->sortable()
             ->toggleable(isToggledHiddenByDefault: $cache)
             ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 2, locale: 'fr'));
+
+        if ($couleur !== null) {
+            $colonne->color(fn ($state) => $state ? $couleur : 'gray');
+        }
+
+        return $colonne;
     }
 
     /**
      * Requête de l'export : un article par ligne, avec les quantités
-     * de clôture et écarts d'inventaire calculés en SQL pour la période choisie.
+     * et valeurs (clôture, IN, OUT, écart inventaire) calculées en SQL
+     * pour la période choisie.
      *
      * @param array<string, string> $societes code_stock => libellé
      */
@@ -90,12 +138,20 @@ class StockMensuelsTable
         $i = 0;
         foreach (array_keys($societes) as $code) {
             $query->selectSub($somme('qte_cloture', $code), "s{$i}_qte");
+            $query->selectSub($somme('qte_in', $code), "s{$i}_in");
+            $query->selectSub($somme('qte_out', $code), "s{$i}_out");
             $query->selectSub($somme('qte_stk', $code), "s{$i}_stk");
+            $query->selectSub($somme('val_in', $code), "s{$i}_vin");
+            $query->selectSub($somme('val_out', $code), "s{$i}_vout");
             $i++;
         }
 
         $query->selectSub($somme('qte_cloture'), 't_qte');
+        $query->selectSub($somme('qte_in'), 't_in');
+        $query->selectSub($somme('qte_out'), 't_out');
         $query->selectSub($somme('qte_stk'), 't_stk');
+        $query->selectSub($somme('val_in'), 't_vin');
+        $query->selectSub($somme('val_out'), 't_vout');
 
         return $query;
     }
@@ -112,10 +168,16 @@ class StockMensuelsTable
         $i = 0;
         foreach ($societes as $code => $libelle) {
             $groupesSocietes[] = ColumnGroup::make(($libelle ?: $code) . " ({$code})", [
-                self::colonneQte("s{$i}_qte", 'Qté', gras: true),
+                self::avecSeparateur(self::colonneQte("s{$i}_qte", 'Qté', gras: true)),
+                self::colonneMvt("s{$i}_in", 'IN', 'success'),
+                self::colonneMvt("s{$i}_out", 'OUT', 'danger'),
                 self::colonneQte("s{$i}_stk", 'Écart inv.'),
+                self::colonneVal("s{$i}_vin", 'Val. IN', couleur: 'success'),
+                self::colonneVal("s{$i}_vout", 'Val. OUT', couleur: 'danger'),
                 self::colonneVal("s{$i}_val", 'Valeur'),
-            ])->alignCenter();
+            ])
+                ->alignCenter()
+                ->extraHeaderAttributes(['style' => self::SEPARATEUR]);
             $i++;
         }
 
@@ -130,7 +192,15 @@ class StockMensuelsTable
                 foreach (array_keys($societes) as $code) {
                     $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_cloture END), 0) as s{$i}_qte";
                     $bindings[] = $code;
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_in END), 0) as s{$i}_in";
+                    $bindings[] = $code;
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_out END), 0) as s{$i}_out";
+                    $bindings[] = $code;
                     $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN qte_stk END), 0) as s{$i}_stk";
+                    $bindings[] = $code;
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN val_in END), 0) as s{$i}_vin";
+                    $bindings[] = $code;
+                    $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN val_out END), 0) as s{$i}_vout";
                     $bindings[] = $code;
                     $selects[] = "COALESCE(SUM(CASE WHEN code_stock = ? THEN val_cloture END), 0) as s{$i}_val";
                     $bindings[] = $code;
@@ -138,7 +208,11 @@ class StockMensuelsTable
                 }
 
                 $selects[] = 'COALESCE(SUM(qte_cloture), 0) as t_qte';
+                $selects[] = 'COALESCE(SUM(qte_in), 0) as t_in';
+                $selects[] = 'COALESCE(SUM(qte_out), 0) as t_out';
                 $selects[] = 'COALESCE(SUM(qte_stk), 0) as t_stk';
+                $selects[] = 'COALESCE(SUM(val_in), 0) as t_vin';
+                $selects[] = 'COALESCE(SUM(val_out), 0) as t_vout';
                 $selects[] = 'COALESCE(SUM(val_cloture), 0) as t_val';
 
                 return $query
@@ -184,10 +258,18 @@ class StockMensuelsTable
                 ...$groupesSocietes,
 
                 ColumnGroup::make($labelTotal, [
-                    self::colonneQte('t_qte', 'Qté clôture', gras: true, labelTotal: $labelTotal),
+                    self::avecSeparateur(
+                        self::colonneQte('t_qte', 'Qté clôture', gras: true, labelTotal: $labelTotal)
+                    ),
+                    self::colonneMvt('t_in', 'IN', 'success', labelTotal: $labelTotal),
+                    self::colonneMvt('t_out', 'OUT', 'danger', labelTotal: $labelTotal),
                     self::colonneQte('t_stk', 'Écart inv.', labelTotal: $labelTotal),
+                    self::colonneVal('t_vin', 'Val. IN', labelTotal: $labelTotal, couleur: 'success'),
+                    self::colonneVal('t_vout', 'Val. OUT', labelTotal: $labelTotal, couleur: 'danger'),
                     self::colonneVal('t_val', 'Valeur', labelTotal: $labelTotal),
-                ])->alignCenter(),
+                ])
+                    ->alignCenter()
+                    ->extraHeaderAttributes(['style' => self::SEPARATEUR]),
             ])
             ->filters([
                 SelectFilter::make('periode')
