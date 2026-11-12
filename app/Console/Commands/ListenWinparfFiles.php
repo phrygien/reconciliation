@@ -6,6 +6,7 @@ use App\Models\WinparfImportLog;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -15,11 +16,20 @@ use Symfony\Component\Console\Output\BufferedOutput;
 #[Description('Surveille le dossier received et lance app:import-winparf-file quand un fichier .TXT est présent')]
 class ListenWinparfFiles extends Command
 {
+    private ?BufferedOutput $active = null;
+
     public function handle(): int
     {
         $dir = storage_path('app/private/depot_winparf/received');
         $interval = max(1, (int) $this->option('interval'));
         $stable = max(0, (int) $this->option('stable'));
+
+        // Copie les Log::info/warning/error de l'import dans la sortie affichée dans Filament
+        Log::listen(function (MessageLogged $event) {
+            if ($this->active) {
+                $this->active->writeln('['.now()->format('H:i:s').'] '.strtoupper($event->level).': '.$event->message);
+            }
+        });
 
         $this->info("Surveillance de {$dir} (toutes les {$interval}s)");
 
@@ -43,7 +53,13 @@ class ListenWinparfFiles extends Command
                     ]);
 
                     $output = $this->liveOutput($run);
-                    $code = Artisan::call('app:import-winparf-file', [], $output);
+                    $this->active = $output;
+
+                    try {
+                        $code = Artisan::call('app:import-winparf-file', [], $output);
+                    } finally {
+                        $this->active = null;
+                    }
 
                     $run->update([
                         'status' => $code === 0 ? 'success' : 'failed',
@@ -59,6 +75,7 @@ class ListenWinparfFiles extends Command
                     }
                 }
             } catch (\Throwable $e) {
+                $this->active = null;
                 Log::error('winparf listener: '.$e->getMessage());
                 $this->error($e->getMessage());
 
