@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0a21c2cabf6f2e592cd4795c2ae5d429",
+    "content-hash": "ac14087dc510068e69dc469ebc12c50f",
     "packages": [
         {
             "name": "andreia/filament-ui-switcher",
@@ -798,6 +798,81 @@
                 }
             ],
             "time": "2026-06-07T11:47:49+00:00"
+        },
+        {
+            "name": "croustibat/filament-jobs-monitor",
+            "version": "v5.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ultraviolettes/filament-jobs-monitor.git",
+                "reference": "3e7aac6c558ca95c86341bfd54a3362180cca188"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ultraviolettes/filament-jobs-monitor/zipball/3e7aac6c558ca95c86341bfd54a3362180cca188",
+                "reference": "3e7aac6c558ca95c86341bfd54a3362180cca188",
+                "shasum": ""
+            },
+            "require": {
+                "filament/filament": "^5.0",
+                "illuminate/contracts": "^12.0|^13.0",
+                "php": "^8.3",
+                "spatie/laravel-package-tools": "^1.13.5"
+            },
+            "require-dev": {
+                "larastan/larastan": "^3.0",
+                "laravel/pint": "^1.0",
+                "orchestra/testbench": "^10.10|^11.0",
+                "pestphp/pest": "^4.0|^5.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Croustibat\\FilamentJobsMonitor\\FilamentJobsMonitorServiceProvider",
+                        "Croustibat\\FilamentJobsMonitor\\QueueMonitorProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Croustibat\\FilamentJobsMonitor\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Baptiste",
+                    "email": "baptiste@dark-matter.fr",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Background Jobs monitoring like Horizon for all drivers for FilamentPHP",
+            "homepage": "https://github.com/ultraviolettes/filament-jobs-monitor",
+            "keywords": [
+                "background-jobs",
+                "filament",
+                "filament-plugin",
+                "jobs",
+                "laravel",
+                "monitor",
+                "queue"
+            ],
+            "support": {
+                "issues": "https://github.com/ultraviolettes/filament-jobs-monitor/issues",
+                "source": "https://github.com/ultraviolettes/filament-jobs-monitor/tree/v5.1.1"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/croustibat",
+                    "type": "github"
+                }
+            ],
+            "time": "2026-10-31T16:03:55+00:00",
+            "published-time": "2026-10-31T16:04:16+00:00"
         },
         {
             "name": "danharrin/date-format-converter",
@@ -5568,6 +5643,76 @@
                 }
             ],
             "time": "2026-03-19T10:36:26+00:00"
+        },
+        {
+            "name": "saivra/meui-theme",
+            "version": "v0.2.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Saivra/meui-theme.git",
+                "reference": "ad7333877d38679d1deab6842dc38177eecd83d7"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/Saivra/meui-theme/zipball/ad7333877d38679d1deab6842dc38177eecd83d7",
+                "reference": "ad7333877d38679d1deab6842dc38177eecd83d7",
+                "shasum": ""
+            },
+            "require": {
+                "filament/filament": "^5.10.2",
+                "illuminate/support": "^12.0 || ^13.0",
+                "php": "^8.2"
+            },
+            "require-dev": {
+                "larastan/larastan": "^3.0",
+                "laravel/pint": "^1.29",
+                "orchestra/testbench": "^10.0 || ^11.0",
+                "phpunit/phpunit": "^11.5"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Saivra\\MeUi\\MeUiServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Saivra\\MeUi\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Saivra Technologies",
+                    "homepage": "https://github.com/saivra"
+                },
+                {
+                    "name": "Ghulam Mustafa",
+                    "homepage": "https://github.com/GMustafa-s",
+                    "role": "Maintainer"
+                }
+            ],
+            "description": "A native light and dark application theme for Filament 5.",
+            "homepage": "https://github.com/saivra/meui-theme",
+            "keywords": [
+                "dark-mode",
+                "filament",
+                "filament-plugin",
+                "laravel",
+                "livewire",
+                "theme"
+            ],
+            "support": {
+                "issues": "https://github.com/saivra/meui-theme/issues",
+                "source": "https://github.com/saivra/meui-theme"
+            },
+            "time": "2026-10-24T11:40:27+00:00",
+            "published-time": "2026-10-24T11:41:55+00:00"
         },
         {
             "name": "scrivo/highlight.php",

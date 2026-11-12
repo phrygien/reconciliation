@@ -116,7 +116,7 @@ class StockMensuelsRelationManager extends RelationManager
                     ->color(fn ($state) => $state < 0 ? 'danger' : ($state > 0 ? 'success' : null))
                     ->alignEnd()
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('qte_cloture')
                     ->label('Qté clôture')

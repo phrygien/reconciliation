@@ -8,7 +8,6 @@ use App\Models\Periode;
 use App\Models\Societe;
 use App\Models\StockMensuel;
 use Filament\Actions\ExportAction;
-use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Columns\ColumnGroup;
 use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
@@ -63,6 +62,42 @@ class StockMensuelsTable
             ->sortable()
             ->toggleable(isToggledHiddenByDefault: $cache)
             ->summarize(Sum::make()->label($labelTotal)->numeric(decimalPlaces: 2, locale: 'fr'));
+    }
+
+    /**
+     * Requête de l'export : un article par ligne, avec les quantités
+     * de clôture et écarts d'inventaire calculés en SQL pour la période choisie.
+     *
+     * @param array<string, string> $societes code_stock => libellé
+     */
+    private static function requeteExport(array $societes, string $periode): Builder
+    {
+        $articles = (new Article())->getTable();
+
+        $somme = fn (string $colonne, ?string $code = null) => StockMensuel::query()
+            ->selectRaw("COALESCE(SUM(stock_mensuels.{$colonne}), 0)")
+            ->whereColumn('stock_mensuels.parkod', "{$articles}.parkod")
+            ->where('stock_mensuels.periode', $periode)
+            ->when($code !== null, fn ($q) => $q->where('stock_mensuels.code_stock', $code));
+
+        $query = Article::query()
+            ->select("{$articles}.*")
+            ->whereIn(
+                "{$articles}.parkod",
+                StockMensuel::query()->pourPeriode($periode)->select('parkod')
+            );
+
+        $i = 0;
+        foreach (array_keys($societes) as $code) {
+            $query->selectSub($somme('qte_cloture', $code), "s{$i}_qte");
+            $query->selectSub($somme('qte_stk', $code), "s{$i}_stk");
+            $i++;
+        }
+
+        $query->selectSub($somme('qte_cloture'), 't_qte');
+        $query->selectSub($somme('qte_stk'), 't_stk');
+
+        return $query;
     }
 
     public static function configure(Table $table): Table
@@ -140,6 +175,9 @@ class StockMensuelsTable
 
                 TextColumn::make('article.description')
                     ->label('Désignation')
+                    ->description(fn ($record): ?string => $record->article?->ean
+                        ? 'EAN : ' . $record->article->ean
+                        : null)
                     ->searchable(isIndividual: true)
                     ->wrap(),
 
@@ -174,13 +212,10 @@ class StockMensuelsTable
                     ->fileDisk('local')
                     ->chunkSize(500)
                     // On ignore la requête groupée de la table : l'export part des articles
-                    ->modifyQueryUsing(fn (Builder $query, array $options): Builder => Article::query()
-                        ->whereIn(
-                            'parkod',
-                            StockMensuel::query()
-                                ->pourPeriode($options['periode'])
-                                ->select('parkod')
-                        )),
+                    ->modifyQueryUsing(fn (Builder $query, array $options): Builder => self::requeteExport(
+                        $societes,
+                        (string) $options['periode'],
+                    )),
             ])
             ->emptyStateHeading('Aucun stock mensuel')
             ->paginated([25, 50, 100])

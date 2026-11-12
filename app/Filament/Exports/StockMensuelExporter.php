@@ -5,7 +5,6 @@ namespace App\Filament\Exports;
 use App\Models\Article;
 use App\Models\Periode;
 use App\Models\Societe;
-use App\Models\StockMensuel;
 use Filament\Actions\Exports\Enums\ExportFormat;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
@@ -27,19 +26,10 @@ class StockMensuelExporter extends Exporter
 {
     protected static ?string $model = Article::class;
 
-    /** Cache par période : [parkod => [code_stock => qte_cloture]] */
-    protected static array $pivot = [];
-
-    protected static function pivot(string $periode): array
-    {
-        return self::$pivot[$periode] ??= StockMensuel::query()
-            ->pourPeriode($periode)
-            ->get(['parkod', 'code_stock', 'qte_cloture'])
-            ->groupBy('parkod')
-            ->map(fn ($rows) => $rows->pluck('qte_cloture', 'code_stock')->all())
-            ->all();
-    }
-
+    /**
+     * Les valeurs s{i}_qte, s{i}_stk, t_qte, t_stk sont calculées en SQL
+     * par StockMensuelsTable (ExportAction::modifyQueryUsing).
+     */
     public static function getColumns(): array
     {
         $columns = [
@@ -56,19 +46,29 @@ class StockMensuelExporter extends Exporter
 
         $societes = Societe::query()->orderBy('code_stock')->pluck('libelle', 'code_stock');
 
+        $i = 0;
         foreach ($societes as $code => $libelle) {
+            $nom = ($libelle ?: $code) . " ({$code})";
+            $alias = $i;
+
             $columns[] = ExportColumn::make("qte_{$code}")
-                ->label(($libelle ?: $code) . " ({$code})")
-                ->state(fn (Article $record, array $options): int => (int) (
-                    self::pivot($options['periode'])[$record->parkod][$code] ?? 0
-                ));
+                ->label($nom)
+                ->state(fn (Article $record): int => (int) ($record->{"s{$alias}_qte"} ?? 0));
+
+            $columns[] = ExportColumn::make("stk_{$code}")
+                ->label('Écart inv. ' . $nom)
+                ->state(fn (Article $record): int => (int) ($record->{"s{$alias}_stk"} ?? 0));
+
+            $i++;
         }
 
         $columns[] = ExportColumn::make('qte_cloture_total')
             ->label('Total stock dépôt centrale')
-            ->state(fn (Article $record, array $options): int => (int) array_sum(
-                self::pivot($options['periode'])[$record->parkod] ?? []
-            ));
+            ->state(fn (Article $record): int => (int) ($record->t_qte ?? 0));
+
+        $columns[] = ExportColumn::make('stk_total')
+            ->label('Écart inv. total dépôt centrale')
+            ->state(fn (Article $record): int => (int) ($record->t_stk ?? 0));
 
         return $columns;
     }
@@ -149,12 +149,12 @@ class StockMensuelExporter extends Exporter
         foreach (array_keys($this->columnMap) as $i => $column) {
             $value = $values[$i] ?? null;
 
-            if (str_starts_with($column, 'qte_')) {
+            if (str_starts_with($column, 'qte_') || str_starts_with($column, 'stk_')) {
                 $numStyle = (new Style())
                     ->setFormat('#,##0;[Red]-#,##0')
                     ->setCellAlignment(CellAlignment::RIGHT);
 
-                if ($column === 'qte_cloture_total') {
+                if ($column === 'qte_cloture_total' || $column === 'stk_total') {
                     $numStyle->setFontBold()->setBackgroundColor(Color::rgb(221, 235, 247));
                 }
 
@@ -177,6 +177,7 @@ class StockMensuelExporter extends Exporter
                 $column === 'parkod' => 16,
                 $column === 'description' => 48,
                 $column === 'qte_cloture_total' => 22,
+                $column === 'stk_total' => 24,
                 default => 18,
             };
 

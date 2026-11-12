@@ -1,5 +1,3 @@
-version: "3.9"
-
 networks:
     traefik-public:
         external: true
@@ -18,6 +16,7 @@ services:
                 condition: service_healthy
         volumes:
             - central-stock-storage:/var/www/html/storage
+            - central-stock-winparf:/var/www/html/storage/depot_winparf/received
         networks:
             - central-stock-net
             - traefik-public
@@ -50,6 +49,17 @@ services:
             retries: 10
             start_period: 30s
 
+    central-stock-sftp:
+        image: atmoz/sftp:alpine
+        container_name: central-stock-sftp
+        restart: unless-stopped
+        ports:
+            - "2222:22"
+        command: ${SFTP_USER}:${SFTP_PASSWORD}:82:82
+        volumes:
+            - central-stock-winparf:/home/${SFTP_USER}/received
+
 volumes:
     central-stock-storage:
     central-stock-db-data:
+    central-stock-winparf:
