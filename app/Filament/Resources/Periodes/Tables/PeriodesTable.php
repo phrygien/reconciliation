@@ -85,7 +85,7 @@ class PeriodesTable
                 //     }),
 
                 ViewAction::make(),
-                EditAction::make(),
+                // EditAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
