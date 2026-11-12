@@ -41,7 +41,7 @@ class FileProcessor
         if ($periode->periode < $annee_mois) {
             Log::channel('stderr')->info($periode->periode . " < " . $annee_mois); 
             $this->cloturerPeriode($periode);
-            Periode::firstOrCreate(['periode' => $annee_mois], ['statut' => 'OUVERTE']);
+            $this->ouvrirPeriode($annee_mois, $periode->periode);
         }
 
         //---------------------------//
@@ -119,6 +119,44 @@ class FileProcessor
         $periode->statut = 'CLOTUREE';
         $periode->cloture_le = now();
         $periode->save();
+    }
+
+    private function ouvrirPeriode(string $new_periode, string $prev_periode): void
+    {
+        Log::channel('stderr')->info("initialisation de l'ouverture de la période : {$new_periode} (qte_ouverture_n = qte_cloture_n-1)");
+
+        Periode::firstOrCreate(['periode' => $new_periode], ['statut' => 'OUVERTE']);
+
+        // ouvrir TOUS les stocks de la nouvelle période à partir de la clôture précédente
+        StockMensuel::where('periode', $prev_periode)
+            ->get(['parkod', 'code_stock', 'qte_cloture', 'val_cloture'])
+            ->each(function ($s) use ($new_periode) {
+                $qte = $s->qte_cloture;
+                $val = $s->val_cloture;
+
+                Log::channel('stderr')->info("Creation Stock Mensuel : " . $s->parkod . "_" . $new_periode ."_". $s->code_stock);
+
+                StockMensuel::firstOrCreate(
+                    // clé d'unicité : on ne recrée pas une ligne déjà existante
+                    [
+                        'parkod'     => $s->parkod,
+                        'periode'    => $new_periode,
+                        'code_stock' => $s->code_stock,
+                    ],
+                    [
+                        'qte_ouverture' => $qte,
+                        'val_ouverture' => $val,
+                        'qte_in'  => 0, 'val_in'  => 0,
+                        'qte_out' => 0, 'val_out' => 0,
+                        'qte_stk' => 0, 'val_stk' => 0,
+                        'qte_cloture'  => $qte,
+                        'val_cloture'  => $val,
+                        'pamp_cloture' => $qte > 0 ? round($val / $qte, 4) : 0,
+                    ]
+                );
+            });
+
+        Log::channel('stderr')->info("l'ouverture de la période : {$new_periode} OK");
     }
 
     // lecture
@@ -271,7 +309,7 @@ class FileProcessor
                     ["nom" => $row['MARQUE']]
                 );
 
-                if($row['EAN']){
+                if($row['EAN'] != ""){
                     $ARTICLE = Article::updateOrCreate(
                         ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id],
                         ['parkod' => $row['PARKOD'], 'marque_id' => $MARQUE->id, 'ean' => $row['EAN'], 'description' => $row['DESCR_ARTICLE'], 'paht' => $row['PAHT']]
@@ -364,25 +402,55 @@ class FileProcessor
                     }
                 }
                 if($row['IN_OUT'] == "STK"){
-                    $INV_WP = EtatStockWinparf::updateOrCreate(
-                        ['mouvement_brut_id' =>  $MVT_BRUT->id],
+
+                    //Application du prorata (repartition du stock en 50-50 entre ADV et COSMA)
+                    $signe = ($row['QTE'] > 0) ? 1 : -1;
+                    $qte = abs($row['QTE']);
+                    $val_unit = abs($row['MONTANT_IN_OUT'])/$qte;
+
+                    $qte_cosma = intdiv($qte, 2);
+                    $qte_adv = $qte - $qte_cosma;
+
+                    //creattion du etat stock de winparf
+                    $INV_WP_ADV = EtatStockWinparf::updateOrCreate(
+                        ['mouvement_brut_id' =>  $MVT_BRUT->id, 'code_stock' => "ADV"],
                         [
-                            'mouvement_brut_id' => $MVT_BRUT->id,
-                            'code_stock' => $row['SOCIETE'],
-                            'qte' => $row['QTE'],
-                            'valeur' => $row['MONTANT_IN_OUT'],
+                            'qte' => $qte_adv * $signe,
+                            'valeur' => $val_unit * $qte_adv * $signe,
                             'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
                         ]
                     );
-                    //mise a jour du stock mensuel (invetaire fixe sur winparf)
-                    $STOCK->qte_stk = $row['QTE'];
-                    $STOCK->val_stk = $row['MONTANT_IN_OUT'];
+
+                    $INV_WP_COSMA = EtatStockWinparf::updateOrCreate(
+                        ['mouvement_brut_id' =>  $MVT_BRUT->id, 'code_stock' => "COSMA"],
+                        [
+                            'qte' => $qte_cosma * $signe,
+                            'valeur' => $val_unit * $qte_cosma * $signe,
+                            'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                        ]
+                    );
+
+                    // mettre en touche le siblings pour recalculer le stock mensuel (dual verification/calculation)
+                    $siblings = ($row['SOCIETE'] == "ADV") ? "COSMA" : "ADV";
+                    $touches[$row['PARKOD'] . '|' . $PERIODE_MVT . '|' . $siblings] = [
+                        'parkod'  => $row['PARKOD'],
+                        'periode' => $PERIODE_MVT,
+                        'societe' => $siblings,
+                    ];
+
+                    // $INV_WP = EtatStockWinparf::updateOrCreate(
+                    //     ['mouvement_brut_id' =>  $MVT_BRUT->id],
+                    //     [
+                    //         'mouvement_brut_id' => $MVT_BRUT->id,
+                    //         'code_stock' => $row['SOCIETE'],
+                    //         'qte' => $row['QTE'],
+                    //         'valeur' => $row['MONTANT_IN_OUT'],
+                    //         'date_comptable' => substr($row['DATE_MVT'], 0, 4) . "-" . substr($row['DATE_MVT'], 4, 2) . "-" . substr($row['DATE_MVT'], 6, 2)
+                    //     ]
+                    // );
                 }
 
-                //calcule du stock de cloture
-                $STOCK->qte_cloture = $STOCK->qte_ouverture + $STOCK->qte_in + $STOCK->qte_out;
-                $STOCK->val_cloture = $STOCK->val_ouverture + $STOCK->val_in + $STOCK->val_out;
-                $STOCK->pamp_cloture = $STOCK->qte_cloture > 0 ? round($STOCK->val_cloture / $STOCK->qte_cloture, 4) : 0;
+                //sauvegarde des mouvement in et out
                 $STOCK->save();
 
                 // mettre en touche pour recalculer le stock mensuel (dual verification/calculation)

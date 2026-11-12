@@ -49,43 +49,43 @@ class PeriodesTable
                     ->options(array_combine(Periode::STATUTS, Periode::STATUTS)),
             ])
             ->recordActions([
-                Action::make('cloturer')
-                    ->label('Clôturer')
-                    ->icon('heroicon-o-lock-closed')
-                    ->color('danger')
-                    ->visible(fn (Periode $record): bool => $record->estOuverte())
-                    ->requiresConfirmation()
-                    ->modalHeading(fn (Periode $record): string => "Clôturer la période {$record->periode} ?")
-                    ->modalDescription('La période passera au statut CLOTURE. Vous pourrez la rouvrir si nécessaire.')
-                    ->modalSubmitActionLabel('Clôturer')
-                    ->action(function (Periode $record): void {
-                        $record->cloturer();
+                // Action::make('cloturer')
+                //     ->label('Clôturer')
+                //     ->icon('heroicon-o-lock-closed')
+                //     ->color('danger')
+                //     ->visible(fn (Periode $record): bool => $record->estOuverte())
+                //     ->requiresConfirmation()
+                //     ->modalHeading(fn (Periode $record): string => "Clôturer la période {$record->periode} ?")
+                //     ->modalDescription('La période passera au statut CLOTURE. Vous pourrez la rouvrir si nécessaire.')
+                //     ->modalSubmitActionLabel('Clôturer')
+                //     ->action(function (Periode $record): void {
+                //         $record->cloturer();
 
-                        Notification::make()
-                            ->title("Période {$record->periode} clôturée")
-                            ->success()
-                            ->send();
-                    }),
+                //         Notification::make()
+                //             ->title("Période {$record->periode} clôturée")
+                //             ->success()
+                //             ->send();
+                //     }),
 
-                Action::make('rouvrir')
-                    ->label('Rouvrir')
-                    ->icon('heroicon-o-lock-open')
-                    ->color('warning')
-                    ->visible(fn (Periode $record): bool => $record->estCloturee())
-                    ->requiresConfirmation()
-                    ->modalHeading(fn (Periode $record): string => "Rouvrir la période {$record->periode} ?")
-                    ->modalSubmitActionLabel('Rouvrir')
-                    ->action(function (Periode $record): void {
-                        $record->rouvrir();
+                // Action::make('rouvrir')
+                //     ->label('Rouvrir')
+                //     ->icon('heroicon-o-lock-open')
+                //     ->color('warning')
+                //     ->visible(fn (Periode $record): bool => $record->estCloturee())
+                //     ->requiresConfirmation()
+                //     ->modalHeading(fn (Periode $record): string => "Rouvrir la période {$record->periode} ?")
+                //     ->modalSubmitActionLabel('Rouvrir')
+                //     ->action(function (Periode $record): void {
+                //         $record->rouvrir();
 
-                        Notification::make()
-                            ->title("Période {$record->periode} rouverte")
-                            ->success()
-                            ->send();
-                    }),
+                //         Notification::make()
+                //             ->title("Période {$record->periode} rouverte")
+                //             ->success()
+                //             ->send();
+                //     }),
 
                 ViewAction::make(),
-                EditAction::make(),
+                // EditAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
