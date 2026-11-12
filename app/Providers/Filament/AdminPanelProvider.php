@@ -29,6 +29,10 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->spa()
+            ->spa()
+            ->spaUrlExceptions(fn (): array => [
+                url('/admin/stock-mensuels'),
+            ])
             ->brandLogo(asset('images/logo.svg'))
             ->path('admin')
             ->viteTheme('resources/css/filament/admin/theme.css')
