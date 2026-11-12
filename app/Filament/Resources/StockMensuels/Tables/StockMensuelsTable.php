@@ -6,6 +6,8 @@ use App\Filament\Exports\StockMensuelExporter;
 use App\Models\Article;
 use App\Models\Periode;
 use App\Models\Societe;
+use App\Models\StockMensuel;
+use Closure;
 use Filament\Actions\ExportAction;
 use Filament\Tables\Columns\ColumnGroup;
 use Filament\Tables\Columns\TextColumn;
@@ -14,6 +16,8 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use WeakMap;
 
 class StockMensuelsTable
 {
@@ -39,6 +43,76 @@ class StockMensuelsTable
         };
     }
 
+    // ───────────────────── Calcul tardif (page courante) ─────────────────────
+
+    /**
+     * Calcule en UNE requête les métriques des seules lignes affichées.
+     * Résultat mis en cache par page (WeakMap : libéré avec le paginator).
+     *
+     * @return array<string, array{s: array<string, array<string, float>>, t: array<string, float>}>
+     */
+    private static function metriquesPage(object $livewire): array
+    {
+        static $cache = null;
+        $cache ??= new WeakMap();
+
+        $records = $livewire->getTableRecords();
+
+        if (isset($cache[$records])) {
+            return $cache[$records];
+        }
+
+        $items = $records instanceof Collection ? $records : collect($records->items());
+
+        if ($items->isEmpty()) {
+            return $cache[$records] = [];
+        }
+
+        // Backticks : "in" et "out" sont des mots réservés SQL.
+        $sommes = [];
+        foreach (self::METRIQUES as $alias => $col) {
+            $sommes[] = "COALESCE(SUM({$col}), 0) as `{$alias}`";
+        }
+
+        $lignes = StockMensuel::query()
+            ->select(['periode', 'parkod', 'code_stock'])
+            ->selectRaw(implode(', ', $sommes))
+            ->whereIn('periode', $items->pluck('periode')->unique()->all())
+            ->whereIn('parkod', $items->pluck('parkod')->unique()->all())
+            ->groupBy('periode', 'parkod', 'code_stock')
+            ->toBase()
+            ->get();
+
+        $out = [];
+        foreach ($lignes as $ligne) {
+            $cle = $ligne->periode . '|' . $ligne->parkod;
+
+            foreach (self::METRIQUES as $alias => $_) {
+                $v = (float) $ligne->{$alias};
+                $out[$cle]['s'][$ligne->code_stock][$alias] = $v;
+                $out[$cle]['t'][$alias] = ($out[$cle]['t'][$alias] ?? 0) + $v;
+            }
+        }
+
+        return $cache[$records] = $out;
+    }
+
+    /**
+     * État d'une colonne : $code = null pour le total, sinon code_stock de la société.
+     */
+    private static function etat(?string $code, string $alias): Closure
+    {
+        return function ($record, $livewire) use ($code, $alias) {
+            $m = self::metriquesPage($livewire)[$record->periode . '|' . $record->parkod] ?? null;
+
+            return $code === null
+                ? ($m['t'][$alias] ?? 0)
+                : ($m['s'][$code][$alias] ?? 0);
+        };
+    }
+
+    // ───────────────────────────── Colonnes ─────────────────────────────
+
     private static function avecSeparateur(TextColumn $colonne): TextColumn
     {
         return $colonne
@@ -47,39 +121,39 @@ class StockMensuelsTable
     }
 
     /** Colonne quantité (couleur selon le signe). */
-    private static function colonneQte(string $alias, string $label, bool $gras = false): TextColumn
+    private static function colonneQte(string $nom, Closure $etat, string $label, bool $gras = false): TextColumn
     {
-        return TextColumn::make($alias)
+        return TextColumn::make($nom)
             ->label($label)
+            ->state($etat)
             ->numeric(decimalPlaces: 0, locale: 'fr')
             ->placeholder('0')
             ->color(fn ($state) => self::couleur($state))
             ->weight($gras ? 'bold' : null)
-            ->alignEnd()
-            ->sortable();
+            ->alignEnd();
     }
 
     /** Colonne mouvement (IN / OUT) avec couleur fixe. */
-    private static function colonneMvt(string $alias, string $label, string $couleur): TextColumn
+    private static function colonneMvt(string $nom, Closure $etat, string $label, string $couleur): TextColumn
     {
-        return TextColumn::make($alias)
+        return TextColumn::make($nom)
             ->label($label)
+            ->state($etat)
             ->numeric(decimalPlaces: 0, locale: 'fr')
             ->placeholder('0')
             ->color(fn ($state) => $state ? $couleur : 'gray')
-            ->alignEnd()
-            ->sortable();
+            ->alignEnd();
     }
 
     /** Colonne valeur. */
-    private static function colonneVal(string $alias, string $label, ?string $couleur = null): TextColumn
+    private static function colonneVal(string $nom, Closure $etat, string $label, ?string $couleur = null): TextColumn
     {
-        $colonne = TextColumn::make($alias)
+        $colonne = TextColumn::make($nom)
             ->label($label)
+            ->state($etat)
             ->numeric(decimalPlaces: 2, locale: 'fr')
             ->placeholder('0,00')
-            ->alignEnd()
-            ->sortable();
+            ->alignEnd();
 
         if ($couleur !== null) {
             $colonne->color(fn ($state) => $state ? $couleur : 'gray');
@@ -89,9 +163,28 @@ class StockMensuelsTable
     }
 
     /**
+     * Les 7 colonnes d'un bloc (une société ou le total).
+     *
+     * @return array<int, TextColumn>
+     */
+    private static function blocColonnes(string $prefixe, ?string $code, string $labelQte): array
+    {
+        return [
+            self::avecSeparateur(self::colonneQte("{$prefixe}_qte", self::etat($code, 'qte'), $labelQte, gras: true)),
+            self::colonneMvt("{$prefixe}_in", self::etat($code, 'in'), 'IN', 'success'),
+            self::colonneMvt("{$prefixe}_out", self::etat($code, 'out'), 'OUT', 'danger'),
+            self::colonneQte("{$prefixe}_stk", self::etat($code, 'stk'), 'Écart inv.'),
+            self::colonneVal("{$prefixe}_vin", self::etat($code, 'vin'), 'Val. IN', 'success'),
+            self::colonneVal("{$prefixe}_vout", self::etat($code, 'vout'), 'Val. OUT', 'danger'),
+            self::colonneVal("{$prefixe}_val", self::etat($code, 'val'), 'Valeur'),
+        ];
+    }
+
+    // ────────────────────────────── Export ──────────────────────────────
+
+    /**
      * Requête de l'export : jointure directe sur stock_mensuels.
-     * Filament relance cette requête par chunk (restreinte aux clés du chunk),
-     * donc MariaDB ne lit que les lignes des articles du chunk via l'index.
+     * Filament relance cette requête par chunk (restreinte aux clés du chunk).
      *
      * @param array<string, string> $societes code_stock => libellé
      */
@@ -123,13 +216,14 @@ class StockMensuelsTable
         return Article::query()
             ->select([$cle, "{$articles}.parkod", "{$articles}.description"])
             ->selectRaw(implode(', ', $selects), $bindings)
-            // INNER JOIN : ne garde que les articles ayant du stock sur la période.
             ->join('stock_mensuels as sm', function ($join) use ($articles, $periode) {
                 $join->on('sm.parkod', '=', "{$articles}.parkod")
                     ->where('sm.periode', '=', $periode);
             })
             ->groupBy($cle, "{$articles}.parkod", "{$articles}.description");
     }
+
+    // ────────────────────────────── Table ──────────────────────────────
 
     public static function configure(Table $table): Table
     {
@@ -142,15 +236,10 @@ class StockMensuelsTable
         $groupesSocietes = [];
         $i = 0;
         foreach ($societes as $code => $libelle) {
-            $groupesSocietes[] = ColumnGroup::make(($libelle ?: $code) . " ({$code})", [
-                self::avecSeparateur(self::colonneQte("s{$i}_qte", 'Qté', gras: true)),
-                self::colonneMvt("s{$i}_in", 'IN', 'success'),
-                self::colonneMvt("s{$i}_out", 'OUT', 'danger'),
-                self::colonneQte("s{$i}_stk", 'Écart inv.'),
-                self::colonneVal("s{$i}_vin", 'Val. IN', 'success'),
-                self::colonneVal("s{$i}_vout", 'Val. OUT', 'danger'),
-                self::colonneVal("s{$i}_val", 'Valeur'),
-            ])
+            $groupesSocietes[] = ColumnGroup::make(
+                ($libelle ?: $code) . " ({$code})",
+                self::blocColonnes("s{$i}", (string) $code, 'Qté'),
+            )
                 ->alignCenter()
                 ->extraHeaderAttributes(['style' => self::SEPARATEUR]);
             $i++;
@@ -159,31 +248,15 @@ class StockMensuelsTable
         $labelTotal = 'Total stock dépôt centrale';
 
         return $table
-            ->modifyQueryUsing(function (Builder $query) use ($societes) {
-                $selects = ['MIN(id) as id', 'periode', 'parkod'];
-                $bindings = [];
-
-                $i = 0;
-                foreach (array_keys($societes) as $code) {
-                    foreach (self::METRIQUES as $alias => $col) {
-                        $selects[] = "SUM(CASE WHEN code_stock = ? THEN {$col} ELSE 0 END) as s{$i}_{$alias}";
-                        $bindings[] = $code;
-                    }
-                    $i++;
-                }
-
-                foreach (self::METRIQUES as $alias => $col) {
-                    $selects[] = "SUM({$col}) as t_{$alias}";
-                }
-
-                return $query
-                    ->with([
-                        'article:parkod,description,ean',
-                        'periodeRef',
-                    ])
-                    ->selectRaw(implode(', ', $selects), $bindings)
-                    ->groupBy('periode', 'parkod');
-            })
+            // Requête de pagination minimale : uniquement les clés, aucun SUM.
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->with([
+                    'article:parkod,description,ean',
+                    'periodeRef',
+                ])
+                ->select(['periode', 'parkod'])
+                ->selectRaw('MIN(id) as id')
+                ->groupBy('periode', 'parkod'))
             ->groups([
                 Group::make('periode')
                     ->label('Période')
@@ -196,6 +269,7 @@ class StockMensuelsTable
             ->defaultSort('parkod')
             ->striped()
             ->persistFiltersInSession()
+            ->deferLoading()
             ->columns([
                 TextColumn::make('periode')
                     ->label('Période')
@@ -220,15 +294,7 @@ class StockMensuelsTable
 
                 ...$groupesSocietes,
 
-                ColumnGroup::make($labelTotal, [
-                    self::avecSeparateur(self::colonneQte('t_qte', 'Qté clôture', gras: true)),
-                    self::colonneMvt('t_in', 'IN', 'success'),
-                    self::colonneMvt('t_out', 'OUT', 'danger'),
-                    self::colonneQte('t_stk', 'Écart inv.'),
-                    self::colonneVal('t_vin', 'Val. IN', 'success'),
-                    self::colonneVal('t_vout', 'Val. OUT', 'danger'),
-                    self::colonneVal('t_val', 'Valeur'),
-                ])
+                ColumnGroup::make($labelTotal, self::blocColonnes('t', null, 'Qté clôture'))
                     ->alignCenter()
                     ->extraHeaderAttributes(['style' => self::SEPARATEUR]),
             ])
@@ -245,24 +311,18 @@ class StockMensuelsTable
                     ->searchable()
                     ->multiple(),
 
+                // Une société au moins avec une clôture négative sur (période, article).
                 Filter::make('stock_negatif')
                     ->label('Stock négatif (une société au moins)')
                     ->toggle()
-                    ->query(function (Builder $query) use ($societes): Builder {
-                        if (empty($societes)) {
-                            return $query;
-                        }
-
-                        $conditions = [];
-                        $bindings = [];
-
-                        foreach (array_keys($societes) as $code) {
-                            $conditions[] = 'SUM(CASE WHEN code_stock = ? THEN qte_cloture ELSE 0 END) < 0';
-                            $bindings[] = $code;
-                        }
-
-                        return $query->havingRaw('(' . implode(' OR ', $conditions) . ')', $bindings);
-                    }),
+                    ->query(fn (Builder $query): Builder => $query->whereRaw(
+                        '(periode, parkod) in (
+                            select sn.periode, sn.parkod
+                            from stock_mensuels as sn
+                            group by sn.periode, sn.parkod, sn.code_stock
+                            having sum(sn.qte_cloture) < 0
+                        )'
+                    )),
             ])
             ->headerActions([
                 ExportAction::make()
@@ -271,14 +331,13 @@ class StockMensuelsTable
                     ->columnMapping(false)
                     ->fileDisk('local')
                     ->chunkSize(1000)
-                    // On ignore la requête groupée de la table : l'export part des articles
                     ->modifyQueryUsing(fn (Builder $query, array $options): Builder => self::requeteExport(
                         $societes,
                         (string) $options['periode'],
                     )),
             ])
             ->emptyStateHeading('Aucun stock mensuel')
-            ->paginated([25, 50, 100])
-            ->defaultPaginationPageOption(25);
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10);
     }
 }
