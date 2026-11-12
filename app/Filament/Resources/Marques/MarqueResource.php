@@ -25,7 +25,7 @@ class MarqueResource extends Resource
 
     protected static ?string $model = Marque::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Phosphor::TagDuotone;
+    protected static string|BackedEnum|null $navigationIcon = Phosphor::PackageLight;
 
     protected static ?string $recordTitleAttribute = 'non';
 
