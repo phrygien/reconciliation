@@ -6,7 +6,6 @@ use App\Filament\Exports\StockMensuelExporter;
 use App\Models\Article;
 use App\Models\Periode;
 use App\Models\Societe;
-use App\Models\StockMensuel;
 use Filament\Actions\ExportAction;
 use Filament\Tables\Columns\ColumnGroup;
 use Filament\Tables\Columns\TextColumn;
@@ -91,45 +90,46 @@ class StockMensuelsTable
     }
 
     /**
-     * Requête de l'export : UN seul scan de stock_mensuels (table dérivée
-     * agrégée par article) joint aux articles.
+     * Requête de l'export : jointure directe sur stock_mensuels.
+     * Filament relance cette requête par chunk (restreinte aux clés du chunk),
+     * donc MariaDB ne lit que les lignes des articles du chunk via l'index.
      *
      * @param array<string, string> $societes code_stock => libellé
      */
     private static function requeteExport(array $societes, string $periode): Builder
     {
-        $articles = (new Article())->getTable();
+        $modele = new Article();
+        $articles = $modele->getTable();
+        $cle = $modele->getQualifiedKeyName();
 
         // L'export n'utilise pas la valeur de clôture.
         $metriques = array_diff_key(self::METRIQUES, ['val' => true]);
 
-        $agg = StockMensuel::query()
-            ->select('parkod')
-            ->where('periode', $periode)
-            ->groupBy('parkod');
+        $selects = [];
+        $bindings = [];
 
-        $aliases = [];
         $i = 0;
         foreach (array_keys($societes) as $code) {
             foreach ($metriques as $alias => $col) {
-                $agg->selectRaw(
-                    "SUM(CASE WHEN code_stock = ? THEN {$col} ELSE 0 END) as s{$i}_{$alias}",
-                    [$code]
-                );
-                $aliases[] = "s{$i}_{$alias}";
+                $selects[] = "SUM(CASE WHEN sm.code_stock = ? THEN sm.{$col} ELSE 0 END) as s{$i}_{$alias}";
+                $bindings[] = $code;
             }
             $i++;
         }
 
         foreach ($metriques as $alias => $col) {
-            $agg->selectRaw("SUM({$col}) as t_{$alias}");
-            $aliases[] = "t_{$alias}";
+            $selects[] = "SUM(sm.{$col}) as t_{$alias}";
         }
 
         return Article::query()
-            ->select("{$articles}.*")
-            ->joinSub($agg, 'sm', 'sm.parkod', '=', "{$articles}.parkod")
-            ->addSelect(array_map(fn (string $a) => "sm.{$a}", $aliases));
+            ->select([$cle, "{$articles}.parkod", "{$articles}.description"])
+            ->selectRaw(implode(', ', $selects), $bindings)
+            // INNER JOIN : ne garde que les articles ayant du stock sur la période.
+            ->join('stock_mensuels as sm', function ($join) use ($articles, $periode) {
+                $join->on('sm.parkod', '=', "{$articles}.parkod")
+                    ->where('sm.periode', '=', $periode);
+            })
+            ->groupBy($cle, "{$articles}.parkod", "{$articles}.description");
     }
 
     public static function configure(Table $table): Table
@@ -270,8 +270,10 @@ class StockMensuelsTable
                 ExportAction::make()
                     ->label('Export stock mensuels')
                     ->exporter(StockMensuelExporter::class)
+                    ->columnMapping(false)
                     ->fileDisk('local')
-                    ->chunkSize(500)
+                    ->chunkSize(1000)
+                    // On ignore la requête groupée de la table : l'export part des articles
                     ->modifyQueryUsing(fn (Builder $query, array $options): Builder => self::requeteExport(
                         $societes,
                         (string) $options['periode'],

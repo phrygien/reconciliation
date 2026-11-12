@@ -44,6 +44,23 @@ class StockMensuelExporter extends Exporter
         'vout_total',
     ];
 
+    /** @var array<string, string>|null code_stock => libellé (mémoïsé) */
+    private static ?array $societesCache = null;
+
+    /** @var array<int, Style|null> styles précalculés par index de colonne */
+    private array $stylesColonnes = [];
+
+    /**
+     * @return array<string, string>
+     */
+    private static function societes(): array
+    {
+        return self::$societesCache ??= Societe::query()
+            ->orderBy('code_stock')
+            ->pluck('libelle', 'code_stock')
+            ->all();
+    }
+
     /**
      * Les valeurs s{i}_qte, s{i}_in, s{i}_out, s{i}_stk, s{i}_vin, s{i}_vout
      * et t_* sont calculées en SQL par StockMensuelsTable::requeteExport().
@@ -62,10 +79,8 @@ class StockMensuelExporter extends Exporter
                 ->label('Désignation'),
         ];
 
-        $societes = Societe::query()->orderBy('code_stock')->pluck('libelle', 'code_stock');
-
         $i = 0;
-        foreach ($societes as $code => $libelle) {
+        foreach (self::societes() as $code => $libelle) {
             $nom = ($libelle ?: $code) . " ({$code})";
             $alias = $i;
 
@@ -146,7 +161,8 @@ class StockMensuelExporter extends Exporter
 
     public static function modifyQuery(Builder $query): Builder
     {
-        return $query->orderBy('parkod');
+        // Qualifié : la requête joint stock_mensuels, qui a aussi une colonne parkod.
+        return $query->orderBy((new Article())->getTable() . '.parkod');
     }
 
     // ───────────────────────── Styles XLSX ─────────────────────────
@@ -220,41 +236,55 @@ class StockMensuelExporter extends Exporter
     }
 
     /**
+     * Style d'une colonne, calculé une seule fois puis réutilisé pour toutes les lignes.
+     */
+    private function styleColonne(int $i, string $column, ?Style $style): ?Style
+    {
+        if (array_key_exists($i, $this->stylesColonnes)) {
+            return $this->stylesColonnes[$i];
+        }
+
+        $estQte = $this->commencePar($column, self::PREFIXES_QTE);
+        $estVal = $this->commencePar($column, self::PREFIXES_VAL);
+
+        if (! $estQte && ! $estVal) {
+            return $this->stylesColonnes[$i] = $style;
+        }
+
+        $numStyle = (new Style())
+            ->setFormat($estVal ? '#,##0.00;[Red]-#,##0.00' : '#,##0;[Red]-#,##0')
+            ->setCellAlignment(CellAlignment::RIGHT);
+
+        if (in_array($column, self::COLONNES_TOTAL, true)) {
+            $numStyle->setFontBold()->setBackgroundColor(Color::rgb(221, 235, 247));
+        }
+
+        if ($this->estDebutGroupe($column)) {
+            $numStyle->setBorder(new Border(
+                new BorderPart(Border::LEFT, Color::rgb(89, 89, 89), Border::WIDTH_MEDIUM, Border::STYLE_SOLID)
+            ));
+        }
+
+        return $this->stylesColonnes[$i] = (new StyleMerger())->merge($numStyle, $style ?? new Style());
+    }
+
+    /**
      * @param array<mixed> $values
      */
     public function makeXlsxRow(array $values, ?Style $style = null): Row
     {
-        $styleMerger = new StyleMerger();
         $cells = [];
 
         foreach (array_keys($this->columnMap) as $i => $column) {
             $value = $values[$i] ?? null;
+            $cellStyle = $this->styleColonne($i, $column, $style);
 
-            $estQte = $this->commencePar($column, self::PREFIXES_QTE);
-            $estVal = $this->commencePar($column, self::PREFIXES_VAL);
-
-            if ($estQte || $estVal) {
-                $numStyle = (new Style())
-                    ->setFormat($estVal ? '#,##0.00;[Red]-#,##0.00' : '#,##0;[Red]-#,##0')
-                    ->setCellAlignment(CellAlignment::RIGHT);
-
-                if (in_array($column, self::COLONNES_TOTAL, true)) {
-                    $numStyle->setFontBold()->setBackgroundColor(Color::rgb(221, 235, 247));
-                }
-
-                if ($this->estDebutGroupe($column)) {
-                    $numStyle->setBorder(
-                        new Border(
-                            new BorderPart(Border::LEFT, Color::rgb(89, 89, 89), Border::WIDTH_MEDIUM, Border::STYLE_SOLID)
-                        )
-                    );
-                }
-
-                $nombre = $estVal ? (float) $value : (int) $value;
-
-                $cells[] = Cell::fromValue($nombre, $styleMerger->merge($numStyle, $style ?? new Style()));
+            if ($this->commencePar($column, self::PREFIXES_VAL)) {
+                $cells[] = Cell::fromValue((float) $value, $cellStyle);
+            } elseif ($this->commencePar($column, self::PREFIXES_QTE)) {
+                $cells[] = Cell::fromValue((int) $value, $cellStyle);
             } else {
-                $cells[] = Cell::fromValue((string) $value, $style);
+                $cells[] = Cell::fromValue((string) $value, $cellStyle);
             }
         }
 
