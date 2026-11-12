@@ -50,7 +50,7 @@ class MouvementBrutResource extends Resource
     {
         return [
             EtatsStockWinparfRelationManager::class,
-            AffectationsRelationManager::class
+            //AffectationsRelationManager::class
         ];
     }
 
