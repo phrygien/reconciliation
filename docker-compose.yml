@@ -23,7 +23,7 @@ services:
         labels:
             - traefik.enable=true
             - traefik.docker.network=traefik-public
-            - traefik.http.routers.central-stock.rule=Host(`central-stock.astucom.com`)
+            - traefik.http.routers.central-stock.rule=Host(`central-stk.kalista-group.fr`)
             - traefik.http.routers.central-stock.entrypoints=websecure
             - traefik.http.routers.central-stock.tls.certresolver=letsencrypt
             - traefik.http.services.central-stock.loadbalancer.server.port=80
@@ -58,6 +58,8 @@ services:
         command: ${SFTP_USER}:${SFTP_PASSWORD}:82:82
         volumes:
             - central-stock-winparf:/home/${SFTP_USER}/received
+            - ./sftp-keys/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
+            - ./sftp-keys/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
 
 volumes:
     central-stock-storage:
