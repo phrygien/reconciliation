@@ -10,6 +10,7 @@ use App\Models\StockMensuel;
 use Closure;
 use Filament\Actions\ExportAction;
 use Filament\Tables\Columns\ColumnGroup;
+use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -17,6 +18,7 @@ use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use WeakMap;
 
 class StockMensuelsTable
@@ -111,6 +113,69 @@ class StockMensuelsTable
         };
     }
 
+    // ───────────────────── Totaux (pied de tableau) ─────────────────────
+
+    /**
+     * Somme de toutes les métriques, par code_stock, pour l'ensemble des clés
+     * (période, article) de la requête reçue. Une seule requête, mise en cache.
+     *
+     * @return array{s: array<string, array<string, float>>, t: array<string, float>}
+     */
+    private static function totauxRequete(mixed $query): array
+    {
+        static $cache = [];
+
+        $base = $query instanceof Builder ? $query->toBase() : $query;
+        $base = (clone $base)->reorder();
+
+        $cle = md5($base->toSql() . serialize($base->getBindings()));
+
+        if (isset($cache[$cle])) {
+            return $cache[$cle];
+        }
+
+        // Backticks : "in" et "out" sont des mots réservés SQL.
+        $sommes = [];
+        foreach (self::METRIQUES as $alias => $col) {
+            $sommes[] = "COALESCE(SUM(sm.{$col}), 0) as `{$alias}`";
+        }
+
+        // Le sous-select contient une ligne par (periode, parkod) : pas de doublons.
+        $lignes = DB::table('stock_mensuels as sm')
+            ->joinSub($base, 'k', fn ($join) => $join
+                ->on('k.periode', '=', 'sm.periode')
+                ->on('k.parkod', '=', 'sm.parkod'))
+            ->selectRaw('sm.code_stock, ' . implode(', ', $sommes))
+            ->groupBy('sm.code_stock')
+            ->get();
+
+        $out = ['s' => [], 't' => []];
+        foreach ($lignes as $ligne) {
+            foreach (self::METRIQUES as $alias => $_) {
+                $v = (float) $ligne->{$alias};
+                $out['s'][$ligne->code_stock][$alias] = $v;
+                $out['t'][$alias] = ($out['t'][$alias] ?? 0) + $v;
+            }
+        }
+
+        return $cache[$cle] = $out;
+    }
+
+    /** Summarizer d'une colonne : $code = null pour le total général. */
+    private static function total(?string $code, string $alias, int $decimales = 0): Summarizer
+    {
+        return Summarizer::make()
+            ->label('Total')
+            ->numeric(decimalPlaces: $decimales, locale: 'fr')
+            ->using(function ($query) use ($code, $alias) {
+                $t = self::totauxRequete($query);
+
+                return $code === null
+                    ? ($t['t'][$alias] ?? 0)
+                    : ($t['s'][$code][$alias] ?? 0);
+            });
+    }
+
     // ───────────────────────────── Colonnes ─────────────────────────────
 
     private static function avecSeparateur(TextColumn $colonne): TextColumn
@@ -163,20 +228,29 @@ class StockMensuelsTable
     }
 
     /**
-     * Les 7 colonnes d'un bloc (une société ou le total).
+     * Les 7 colonnes d'un bloc (une société ou le total), avec leurs totaux.
      *
      * @return array<int, TextColumn>
      */
     private static function blocColonnes(string $prefixe, ?string $code, string $labelQte): array
     {
         return [
-            self::avecSeparateur(self::colonneQte("{$prefixe}_qte", self::etat($code, 'qte'), $labelQte, gras: true)),
-            self::colonneMvt("{$prefixe}_in", self::etat($code, 'in'), 'IN', 'success'),
-            self::colonneMvt("{$prefixe}_out", self::etat($code, 'out'), 'OUT', 'danger'),
-            self::colonneQte("{$prefixe}_stk", self::etat($code, 'stk'), 'Écart inv.'),
-            self::colonneVal("{$prefixe}_vin", self::etat($code, 'vin'), 'Val. IN', 'success'),
-            self::colonneVal("{$prefixe}_vout", self::etat($code, 'vout'), 'Val. OUT', 'danger'),
-            self::colonneVal("{$prefixe}_val", self::etat($code, 'val'), 'Valeur'),
+            self::avecSeparateur(
+                self::colonneQte("{$prefixe}_qte", self::etat($code, 'qte'), $labelQte, gras: true)
+                    ->summarize(self::total($code, 'qte'))
+            ),
+            self::colonneMvt("{$prefixe}_in", self::etat($code, 'in'), 'IN', 'success')
+                ->summarize(self::total($code, 'in')),
+            self::colonneMvt("{$prefixe}_out", self::etat($code, 'out'), 'OUT', 'danger')
+                ->summarize(self::total($code, 'out')),
+            self::colonneQte("{$prefixe}_stk", self::etat($code, 'stk'), 'Écart inv.')
+                ->summarize(self::total($code, 'stk')),
+            self::colonneVal("{$prefixe}_vin", self::etat($code, 'vin'), 'Val. IN', 'success')
+                ->summarize(self::total($code, 'vin', 2)),
+            self::colonneVal("{$prefixe}_vout", self::etat($code, 'vout'), 'Val. OUT', 'danger')
+                ->summarize(self::total($code, 'vout', 2)),
+            self::colonneVal("{$prefixe}_val", self::etat($code, 'val'), 'Valeur')
+                ->summarize(self::total($code, 'val', 2)),
         ];
     }
 
