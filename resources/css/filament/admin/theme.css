@@ -431,3 +431,5 @@
 .dark .fi-ta-group-header-cell {
     background-color: #171717;
 }
+
+@source '../../../../vendor/andreia/filament-ui-switcher';
