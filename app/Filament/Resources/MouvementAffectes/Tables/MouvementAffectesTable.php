@@ -177,7 +177,7 @@ class MouvementAffectesTable
                 ]),
             ])
             ->emptyStateHeading('Aucun mouvement affecté')
-            ->paginated([25, 50, 100])
-            ->defaultPaginationPageOption(50);
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(10);
     }
 }
