@@ -19,6 +19,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 use WeakMap;
 
 class StockMensuelsTable
@@ -297,6 +298,33 @@ class StockMensuelsTable
             ->groupBy($cle, "{$articles}.parkod", "{$articles}.description");
     }
 
+    // ────────────────────────────── Aide ──────────────────────────────
+
+    /** Texte d'aide affiché sous le titre du tableau. */
+    private static function aide(): HtmlString
+    {
+        return new HtmlString(
+            '<div class="space-y-1 text-sm">'
+            . '<p><strong>Lecture du tableau :</strong> une ligne = un article pour une période. '
+            . 'Les colonnes sont regroupées par société, puis le total du dépôt central.</p>'
+            . '<ul class="list-disc ps-5">'
+            . '<li><strong>Qté / Qté clôture</strong> : quantité en stock à la clôture de la période.</li>'
+            . '<li><strong>IN</strong> / <strong>OUT</strong> : quantités entrées / sorties pendant la période.</li>'
+            . '<li><strong>Écart inv.</strong> : écart d\'inventaire (positif = surplus, négatif = manquant).</li>'
+            . '<li><strong>Val. IN</strong> / <strong>Val. OUT</strong> : valeur des entrées / sorties.</li>'
+            . '<li><strong>Valeur</strong> : valeur du stock à la clôture.</li>'
+            . '<li><strong>Total stock dépôt centrale</strong> : somme de toutes les sociétés.</li>'
+            . '</ul>'
+            . '<p><strong>Couleurs :</strong> vert = positif, rouge = négatif, gris = zéro.</p>'
+            . '<p><strong>Totaux en bas du tableau :</strong> ils portent sur tous les résultats '
+            . 'des filtres et recherches en cours, toutes pages confondues, et aussi par période '
+            . 'quand le groupement est actif.</p>'
+            . '<p><strong>Filtres :</strong> « Stock négatif » affiche les articles dont au moins '
+            . 'une société a une quantité de clôture négative.</p>'
+            . '</div>'
+        );
+    }
+
     // ────────────────────────────── Table ──────────────────────────────
 
     public static function configure(Table $table): Table
@@ -322,6 +350,7 @@ class StockMensuelsTable
         $labelTotal = 'Total stock dépôt centrale';
 
         return $table
+            ->description(self::aide())
             // Requête de pagination minimale : uniquement les clés, aucun SUM.
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with([
