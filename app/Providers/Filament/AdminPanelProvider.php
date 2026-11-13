@@ -12,6 +12,7 @@ use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\Support\Enums\Width;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -29,7 +30,6 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->spa()
-            ->spa()
             ->spaUrlExceptions(fn (): array => [
                 url('/admin/stock-mensuels'),
             ])
@@ -38,9 +38,17 @@ class AdminPanelProvider extends PanelProvider
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
             ->profile()
+            ->font('Inter')
             ->colors([
-                'primary' => Color::Amber,
+                'primary' => Color::hex('#1d4ed8'),
+                'gray'    => Color::Neutral,
+                'success' => Color::hex('#15803d'),
+                'warning' => Color::hex('#b45309'),
+                'danger'  => Color::hex('#b91c1c'),
+                'info'    => Color::hex('#1d4ed8'),
             ])
+            //->maxContentWidth(Width::Full)
+            ->sidebarWidth('18rem')
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
@@ -68,9 +76,8 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 FilamentUiSwitcherPlugin::make()->withModeSwitcher(),
                 FilamentJobsMonitorPlugin::make()
-                    ->enableBatchesPage()
+                    ->enableBatchesPage(),
             ])
-
             ->databaseNotifications();
     }
 }

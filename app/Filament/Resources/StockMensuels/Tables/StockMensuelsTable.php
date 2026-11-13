@@ -390,7 +390,7 @@ class StockMensuelsTable
                 TextColumn::make('article.description')
                     ->label('Désignation')
                     ->description(fn ($record): ?string => $record->article?->ean
-                        ? 'EAN : ' . $record->article->ean
+                        ? $record->article->ean
                         : null)
                     ->searchable(isIndividual: true)
                     ->wrap(),
