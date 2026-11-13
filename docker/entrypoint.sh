@@ -9,12 +9,11 @@ mkdir -p storage/app/public
 
 php artisan storage:link --force || true
 php artisan filament:assets || true
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
+php artisan optimize
 php artisan icons:cache 2>/dev/null || true
 php artisan filament:optimize 2>/dev/null || true
 
-chown -R www-data:www-data storage bootstrap/cache
+# chown uniquement sur ce qui n'appartient pas déjà à www-data (rapide sur gros volumes)
+find storage bootstrap/cache ! -user www-data -exec chown www-data:www-data {} +
 
 exec supervisord -c /etc/supervisord.conf
