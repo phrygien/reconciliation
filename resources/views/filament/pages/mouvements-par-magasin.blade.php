@@ -23,6 +23,7 @@
                     :active="$activeTab === $mag->mag_code"
                     wire:click="selectMagasin('{{ $mag->mag_code }}')"
                     wire:key="magasin-{{ $societeTab }}-{{ $mag->mag_code }}"
+                    icon="heroicon-o-building-storefront"
                 >
                     {{ $mag->mag_code }}@if ($mag->libelle) · {{ $mag->libelle }}@endif
                 </x-filament::tabs.item>

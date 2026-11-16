@@ -32,10 +32,10 @@ return [
     | par le bouton « Réinitialiser ». Surchargeables via .env.
     */
     'defaults' => [
-        'font'      => env('UI_SWITCHER_FONT', 'Inter'),
-        'color'     => env('UI_SWITCHER_COLOR', '#6366f1'),
+        'font'      => env('UI_SWITCHER_FONT', 'B612'),
+        'color'     => env('UI_SWITCHER_COLOR', '#ec4899'),
         'layout'    => env('UI_SWITCHER_LAYOUT', 'sidebar'),
-        'font_size' => (int) env('UI_SWITCHER_FONT_SIZE', 16),
+        'font_size' => (int) env('UI_SWITCHER_FONT_SIZE', 14),
         'density'   => 'default',
     ],
 
