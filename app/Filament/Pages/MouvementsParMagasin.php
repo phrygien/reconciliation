@@ -73,13 +73,13 @@ class MouvementsParMagasin extends Page implements HasTable
         return Societe::query()->orderBy('code_stock')->get();
     }
 
-    /** Magasins de la société active. */
+    /** Magasins de la société active (hors dépôts). */
     #[Computed]
     public function magasins(): Collection
     {
         return Magasin::query()
             ->where('societe_id', $this->societeTab)
-            ->where('type_magasin', '!=', "DEPOT")
+            ->where('type_magasin', '!=', 'DEPOT')
             ->orderBy('mag_code')
             ->get();
     }
@@ -111,7 +111,7 @@ class MouvementsParMagasin extends Page implements HasTable
     }
 
     /** Applique une période (YYYY-MM) sur date_mvt. */
-    protected function appliquerPeriode(Builder $query, ?string $periode): Builder
+    protected static function appliquerPeriode(Builder $query, ?string $periode): Builder
     {
         if (! $periode) {
             return $query;
@@ -122,10 +122,21 @@ class MouvementsParMagasin extends Page implements HasTable
         return $query->whereBetween('date_mvt', [$debut, $debut->copy()->endOfMonth()]);
     }
 
-    /** Requête utilisée par l'export Excel (magasin actif + période choisie dans le modal). */
-    public function exportQuery(?string $periode): Builder
+    /**
+     * Requête d'export : uniquement le magasin demandé (onglet actif) + période choisie.
+     */
+    protected static function exportQuery(?string $magasin, ?string $periode): Builder
     {
-        return $this->appliquerPeriode($this->baseQuery(), $periode)
+        $query = MouvementBrut::query();
+
+        // Sécurité : aucun magasin => aucun résultat (jamais "tous les magasins")
+        if (blank($magasin)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $query->duMagasin($magasin)->out();
+
+        return static::appliquerPeriode($query, $periode)
             ->with(['magasinOrigine', 'magasin', 'article'])
             ->orderByDesc('date_mvt');
     }
@@ -175,6 +186,11 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->formats([ExportFormat::Xlsx])
                     ->columnMapping(false)
                     ->modalHeading('Exporter les mouvements OUT')
+                    ->modalDescription(function (MouvementsParMagasin $livewire): string {
+                        $mag = $livewire->magasins->firstWhere('mag_code', $livewire->activeTab);
+
+                        return 'Magasin : ' . $livewire->activeTab . ($mag?->libelle ? ' · ' . $mag->libelle : '');
+                    })
                     ->schema(fn (MouvementsParMagasin $livewire): array => [
                         Select::make('periode')
                             ->label('Période')
@@ -187,7 +203,10 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->options(fn (MouvementsParMagasin $livewire): array => [
                         'magasin' => $livewire->activeTab,
                     ])
-                    ->modifyQueryUsing(fn (Builder $query, array $options, MouvementsParMagasin $livewire): Builder => $livewire->exportQuery($options['periode'] ?? null)),
+                    ->modifyQueryUsing(fn (Builder $query, array $options): Builder => static::exportQuery(
+                        $options['magasin'] ?? null,
+                        $options['periode'] ?? null,
+                    )),
             ])
             ->columns([
                 TextColumn::make('date_mvt')
@@ -242,7 +261,7 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->label('Période')
                     ->placeholder('Toutes les périodes')
                     ->options(fn (): array => $this->periodes())
-                    ->query(fn (Builder $query, array $data): Builder => $this->appliquerPeriode($query, $data['value'] ?? null)),
+                    ->query(fn (Builder $query, array $data): Builder => static::appliquerPeriode($query, $data['value'] ?? null)),
             ])
             ->defaultSort('date_mvt', 'desc')
             ->paginated([25, 50, 100])
