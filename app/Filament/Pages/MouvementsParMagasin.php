@@ -30,7 +30,7 @@ class MouvementsParMagasin extends Page implements HasTable
 
     protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
 
-    protected static string | UnitEnum | null $navigationGroup = 'MVT';
+    protected static string | UnitEnum | null $navigationGroup = 'Stock';
 
     protected static ?string $navigationLabel = 'Mouvements par magasin';
 
@@ -100,9 +100,12 @@ class MouvementsParMagasin extends Page implements HasTable
         $this->resetPage($this->getTablePaginationPageName());
     }
 
+    /** OUT du magasin actif : mag_dest = magasin et in_out = OUT. */
     protected function baseQuery(): Builder
     {
-        return MouvementBrut::query()->where('mag_orig', $this->activeTab);
+        return MouvementBrut::query()
+            ->duMagasin($this->activeTab)
+            ->out();
     }
 
     #[Computed]
@@ -141,7 +144,7 @@ class MouvementsParMagasin extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => $this->baseQuery()->with(['magasinOrigine', 'magasinDestination', 'article']))
+            ->query(fn (): Builder => $this->baseQuery()->with(['magasinOrigine', 'magasin', 'article']))
             ->headerActions([
                 ExportAction::make()
                     ->label('Exporter Excel')
@@ -177,8 +180,8 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->sortable()
                     ->searchable(),
                 TextColumn::make('mag_dest')
-                    ->label('Destination')
-                    ->description(fn (MouvementBrut $record): ?string => $record->magasinDestination?->libelle)
+                    ->label('Magasin')
+                    ->description(fn (MouvementBrut $record): ?string => $record->magasin?->libelle)
                     ->sortable()
                     ->searchable(),
                 TextColumn::make('parkod')

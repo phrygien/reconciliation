@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -43,6 +44,10 @@ class MouvementBrut extends Model
         ];
     }
 
+    // ---------------------------------------------------------------
+    // Relations
+    // ---------------------------------------------------------------
+
     public function batch(): BelongsTo
     {
         return $this->belongsTo(ImportBatch::class, 'batch_id');
@@ -51,6 +56,12 @@ class MouvementBrut extends Model
     public function typeMouvement(): BelongsTo
     {
         return $this->belongsTo(TypeMouvement::class, 'typ_mvt', 'type_mouvement');
+    }
+
+    /** Magasin du mouvement (rattaché via mag_dest). */
+    public function magasin(): BelongsTo
+    {
+        return $this->belongsTo(Magasin::class, 'mag_dest', 'mag_code');
     }
 
     public function magasinOrigine(): BelongsTo
@@ -76,5 +87,25 @@ class MouvementBrut extends Model
     public function etatsStockWinparf(): HasMany
     {
         return $this->hasMany(EtatStockWinparf::class);
+    }
+
+    // ---------------------------------------------------------------
+    // Scopes
+    // ---------------------------------------------------------------
+
+    /** Mouvements rattachés à un magasin (via mag_dest). */
+    public function scopeDuMagasin(Builder $query, string $magCode): Builder
+    {
+        return $query->where('mag_dest', $magCode);
+    }
+
+    public function scopeOut(Builder $query): Builder
+    {
+        return $query->where('in_out', 'OUT');
+    }
+
+    public function scopeIn(Builder $query): Builder
+    {
+        return $query->where('in_out', 'IN');
     }
 }
