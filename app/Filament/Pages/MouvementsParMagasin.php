@@ -226,13 +226,6 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->copyable()
                     ->sortable()
                     ->searchable(),
-                TextColumn::make('article.description')
-                    ->label('Description')
-                    ->limit(50)
-                    ->wrap()
-                    ->placeholder('—')
-                    ->searchable()
-                    ->toggleable(),
                 TextColumn::make('qte')
                     ->label('Qté')
                     ->numeric(thousandsSeparator: ' ')
