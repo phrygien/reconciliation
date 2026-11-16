@@ -30,7 +30,7 @@ class MouvementsParMagasin extends Page implements HasTable
 
     protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
 
-    protected static string | UnitEnum | null $navigationGroup = 'Stock';
+    protected static string | UnitEnum | null $navigationGroup = 'MVT';
 
     protected static ?string $navigationLabel = 'Mouvements par magasin';
 
