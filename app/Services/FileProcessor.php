@@ -492,7 +492,7 @@ class FileProcessor
             DB::beginTransaction();
 
             // trie ASC par rapport au date de mouvement
-            $rows = collect($this->read("depot_winparf/init/INIT-STOCK-ASV_20260915_000000.TXT"))->sortBy([
+            $rows = collect($this->read("depot_winparf/init/INIT-STOCK-ADV_20260915_000000.TXT"))->sortBy([
                 ['DATE_MVT', 'asc'],
                 ['SEQUENCE', 'asc'],
             ])->values()->all(); 
