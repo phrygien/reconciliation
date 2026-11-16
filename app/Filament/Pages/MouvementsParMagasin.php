@@ -10,6 +10,7 @@ use BackedEnum;
 use Carbon\Carbon;
 use Filament\Actions\ExportAction;
 use Filament\Actions\Exports\Enums\ExportFormat;
+use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
@@ -30,7 +31,7 @@ class MouvementsParMagasin extends Page implements HasTable
 
     protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
 
-    protected static string | UnitEnum | null $navigationGroup = 'MVT';
+    protected static string | UnitEnum | null $navigationGroup = 'Stock';
 
     protected static ?string $navigationLabel = 'Mouvements par magasin';
 
@@ -78,6 +79,7 @@ class MouvementsParMagasin extends Page implements HasTable
     {
         return Magasin::query()
             ->where('societe_id', $this->societeTab)
+            ->where('type_magasin', '!=', "DEPOT")
             ->orderBy('mag_code')
             ->get();
     }
@@ -108,6 +110,26 @@ class MouvementsParMagasin extends Page implements HasTable
             ->out();
     }
 
+    /** Applique une période (YYYY-MM) sur date_mvt. */
+    protected function appliquerPeriode(Builder $query, ?string $periode): Builder
+    {
+        if (! $periode) {
+            return $query;
+        }
+
+        $debut = Carbon::createFromFormat('Y-m-d', $periode . '-01')->startOfMonth();
+
+        return $query->whereBetween('date_mvt', [$debut, $debut->copy()->endOfMonth()]);
+    }
+
+    /** Requête utilisée par l'export Excel (magasin actif + période choisie dans le modal). */
+    public function exportQuery(?string $periode): Builder
+    {
+        return $this->appliquerPeriode($this->baseQuery(), $periode)
+            ->with(['magasinOrigine', 'magasin', 'article'])
+            ->orderByDesc('date_mvt');
+    }
+
     #[Computed]
     public function totaux(): array
     {
@@ -131,7 +153,7 @@ class MouvementsParMagasin extends Page implements HasTable
     /**
      * Périodes (YYYY-MM) disponibles pour le magasin actif.
      */
-    protected function periodes(): array
+    public function periodes(): array
     {
         return $this->baseQuery()
             ->reorder()
@@ -152,10 +174,20 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->exporter(MouvementBrutExporter::class)
                     ->formats([ExportFormat::Xlsx])
                     ->columnMapping(false)
+                    ->modalHeading('Exporter les mouvements OUT')
+                    ->schema(fn (MouvementsParMagasin $livewire): array => [
+                        Select::make('periode')
+                            ->label('Période')
+                            ->placeholder('Toutes les périodes')
+                            ->options(fn (): array => $livewire->periodes())
+                            ->default($livewire->tableFilters['periode']['value'] ?? null)
+                            ->native(false)
+                            ->searchable(),
+                    ])
                     ->options(fn (MouvementsParMagasin $livewire): array => [
                         'magasin' => $livewire->activeTab,
-                        'periode' => $livewire->tableFilters['periode']['value'] ?? null,
-                    ]),
+                    ])
+                    ->modifyQueryUsing(fn (Builder $query, array $options, MouvementsParMagasin $livewire): Builder => $livewire->exportQuery($options['periode'] ?? null)),
             ])
             ->columns([
                 TextColumn::make('date_mvt')
@@ -217,17 +249,7 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->label('Période')
                     ->placeholder('Toutes les périodes')
                     ->options(fn (): array => $this->periodes())
-                    ->query(function (Builder $query, array $data): Builder {
-                        $periode = $data['value'] ?? null;
-
-                        if (! $periode) {
-                            return $query;
-                        }
-
-                        $debut = Carbon::createFromFormat('Y-m-d', $periode . '-01')->startOfMonth();
-
-                        return $query->whereBetween('date_mvt', [$debut, $debut->copy()->endOfMonth()]);
-                    }),
+                    ->query(fn (Builder $query, array $data): Builder => $this->appliquerPeriode($query, $data['value'] ?? null)),
             ])
             ->defaultSort('date_mvt', 'desc')
             ->paginated([25, 50, 100])
