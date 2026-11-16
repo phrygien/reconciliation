@@ -11,6 +11,14 @@ class ListStockMensuels extends ListRecords
 {
     protected static string $resource = StockMensuelResource::class;
 
+    public function mount(): void
+    {
+        parent::mount();
+
+        // Sens du groupement par défaut : décroissant.
+        $this->tableGroupingDirection ??= 'desc';
+    }
+
     public function getMaxContentWidth(): Width|string|null
     {
         return Width::Full;
@@ -19,7 +27,7 @@ class ListStockMensuels extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            //CreateAction::make(),
         ];
     }
 }

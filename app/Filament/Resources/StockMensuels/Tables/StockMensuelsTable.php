@@ -365,7 +365,8 @@ class StockMensuelsTable
                     ->label('Période')
                     ->getTitleFromRecordUsing(fn ($record): string => $record->periode
                         . ($record->periodeRef?->estOuverte() ? ' — ouverte' : ' — clôturée'))
-                    ->orderQueryUsing(fn (Builder $query, string $direction) => $query->orderBy('periode', $direction))
+                    // Tri des périodes toujours décroissant (plus récente en premier).
+                    ->orderQueryUsing(fn (Builder $query, string $direction) => $query->orderBy('periode', 'desc'))
                     ->collapsible(),
             ])
             ->defaultGroup('periode')
