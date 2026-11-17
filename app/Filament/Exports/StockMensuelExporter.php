@@ -3,6 +3,7 @@
 namespace App\Filament\Exports;
 
 use App\Models\Article;
+use App\Models\Marque;
 use App\Models\Periode;
 use App\Models\Societe;
 use Filament\Actions\Exports\Enums\ExportFormat;
@@ -77,6 +78,14 @@ class StockMensuelExporter extends Exporter
 
             ExportColumn::make('description')
                 ->label('Désignation'),
+
+            ExportColumn::make('marque_nom')
+                ->label('Marque')
+                ->state(fn (Article $record): string => (string) ($record->marque_nom ?? '')),
+
+            ExportColumn::make('ean')
+                ->label('EAN')
+                ->state(fn (Article $record): string => (string) ($record->ean ?? '')),
         ];
 
         $i = 0;
@@ -146,6 +155,13 @@ class StockMensuelExporter extends Exporter
                 ->options(fn () => Periode::query()->orderByDesc('periode')->pluck('periode', 'periode')->all())
                 ->default(fn () => Periode::ouvertes()->orderByDesc('periode')->value('periode'))
                 ->required(),
+
+            Select::make('marque_id')
+                ->label('Marque (optionnel)')
+                ->placeholder('Toutes les marques')
+                ->options(fn () => Marque::query()->orderBy('nom')->pluck('nom', 'id')->all())
+                ->searchable()
+                ->multiple(),
         ];
     }
 
@@ -284,6 +300,7 @@ class StockMensuelExporter extends Exporter
             } elseif ($this->commencePar($column, self::PREFIXES_QTE)) {
                 $cells[] = Cell::fromValue((int) $value, $cellStyle);
             } else {
+                // Texte (EAN inclus : évite la notation scientifique et les zéros perdus).
                 $cells[] = Cell::fromValue((string) $value, $cellStyle);
             }
         }
@@ -314,6 +331,8 @@ class StockMensuelExporter extends Exporter
                 $column === 'periode' => 11,
                 $column === 'parkod' => 16,
                 $column === 'description' => 48,
+                $column === 'marque_nom' => 20,
+                $column === 'ean' => 18,
                 $column === 'qte_cloture_total' => 22,
                 $column === 'stk_total' => 24,
                 in_array($column, ['in_total', 'out_total', 'vin_total', 'vout_total'], true) => 24,
@@ -330,7 +349,7 @@ class StockMensuelExporter extends Exporter
     {
         $sheetView = new SheetView();
         $sheetView->setFreezeRow(2);
-        $sheetView->setFreezeColumn('D');
+        $sheetView->setFreezeColumn('F');
 
         $sheet = $writer->getCurrentSheet();
         $sheet->setSheetView($sheetView);

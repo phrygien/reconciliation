@@ -262,8 +262,9 @@ class StockMensuelsTable
      * Filament relance cette requête par chunk (restreinte aux clés du chunk).
      *
      * @param array<string, string> $societes code_stock => libellé
+     * @param array<int, int|string> $marqueIds vide = toutes les marques
      */
-    private static function requeteExport(array $societes, string $periode): Builder
+    private static function requeteExport(array $societes, string $periode, array $marqueIds = []): Builder
     {
         $modele = new Article();
         $articles = $modele->getTable();
@@ -289,13 +290,24 @@ class StockMensuelsTable
         }
 
         return Article::query()
-            ->select([$cle, "{$articles}.parkod", "{$articles}.description"])
+            ->select([
+                $cle,
+                "{$articles}.parkod",
+                "{$articles}.description",
+                "{$articles}.ean",
+                'marques.nom as marque_nom',
+            ])
             ->selectRaw(implode(', ', $selects), $bindings)
             ->join('stock_mensuels as sm', function ($join) use ($articles, $periode) {
                 $join->on('sm.parkod', '=', "{$articles}.parkod")
                     ->where('sm.periode', '=', $periode);
             })
-            ->groupBy($cle, "{$articles}.parkod", "{$articles}.description");
+            ->leftJoin('marques', 'marques.id', '=', "{$articles}.marque_id")
+            ->when(
+                $marqueIds !== [],
+                fn (Builder $query) => $query->whereIn("{$articles}.marque_id", $marqueIds)
+            )
+            ->groupBy($cle, "{$articles}.parkod", "{$articles}.description", "{$articles}.ean", 'marques.nom');
     }
 
     // ────────────────────────────── Aide ──────────────────────────────
@@ -354,7 +366,8 @@ class StockMensuelsTable
             // Requête de pagination minimale : uniquement les clés, aucun SUM.
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with([
-                    'article:parkod,description,ean',
+                    'article:id,parkod,marque_id,description,ean', // marque_id requis pour charger la marque
+                    'article.marque:id,nom',
                     'periodeRef',
                 ])
                 ->select(['periode', 'parkod'])
@@ -365,7 +378,6 @@ class StockMensuelsTable
                     ->label('Période')
                     ->getTitleFromRecordUsing(fn ($record): string => $record->periode
                         . ($record->periodeRef?->estOuverte() ? ' — ouverte' : ' — clôturée'))
-                    // Tri des périodes toujours décroissant (plus récente en premier).
                     ->orderQueryUsing(fn (Builder $query, string $direction) => $query->orderBy('periode', 'desc'))
                     ->collapsible(),
             ])
@@ -395,6 +407,11 @@ class StockMensuelsTable
                         : null)
                     ->searchable(isIndividual: true)
                     ->wrap(),
+
+                TextColumn::make('article.marque.nom')
+                    ->label('Marque')
+                    ->placeholder('—')
+                    ->searchable(isIndividual: true),
 
                 ...$groupesSocietes,
 
@@ -431,6 +448,7 @@ class StockMensuelsTable
             ->headerActions([
                 ExportAction::make()
                     ->label('Export stock mensuels')
+                    ->color('primary')
                     ->exporter(StockMensuelExporter::class)
                     ->columnMapping(false)
                     ->fileDisk('local')
@@ -438,6 +456,7 @@ class StockMensuelsTable
                     ->modifyQueryUsing(fn (Builder $query, array $options): Builder => self::requeteExport(
                         $societes,
                         (string) $options['periode'],
+                        array_values(array_filter((array) ($options['marque_id'] ?? []))),
                     )),
             ])
             ->emptyStateHeading('Aucun stock mensuel')
