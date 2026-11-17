@@ -182,6 +182,7 @@ class MouvementsParMagasin extends Page implements HasTable
                 ExportAction::make()
                     ->label('Exporter Excel')
                     ->icon(Heroicon::OutlinedArrowDownTray)
+                    ->color('primary')
                     ->exporter(MouvementBrutExporter::class)
                     ->formats([ExportFormat::Xlsx])
                     ->columnMapping(false)
