@@ -2,12 +2,15 @@
 
 namespace App\Filament\Exports;
 
+use App\Models\Marque;
 use App\Models\MouvementBrut;
 use Carbon\Carbon;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Number;
+use Illuminate\Support\Str;
 use OpenSpout\Common\Entity\Cell;
 use OpenSpout\Common\Entity\Row;
 use OpenSpout\Common\Entity\Style\Border;
@@ -27,18 +30,19 @@ class MouvementBrutExporter extends Exporter
 
     /** Largeur Excel par colonne. */
     protected const WIDTHS = [
-        'date_mvt'                   => 18,
-        'in_out'                     => 10,
-        'typ_mvt'                    => 12,
-        'mag_orig'                   => 12,
-        'magasinOrigine.libelle'     => 28,
-        'mag_dest'                   => 12,
-        'magasinDestination.libelle' => 28,
-        'parkod'                     => 16,
-        'ean'                        => 18,
-        'article.description'        => 45,
-        'qte'                        => 12,
-        'montant'                    => 16,
+        'date_mvt'               => 18,
+        'in_out'                 => 10,
+        'typ_mvt'                => 12,
+        'mag_orig'               => 12,
+        'magasinOrigine.libelle' => 28,
+        'mag_dest'               => 12,
+        'magasin.libelle'        => 28,
+        'parkod'                 => 16,
+        'article.ean'            => 18,
+        'article.description'    => 45,
+        'article.marque.nom'     => 22,
+        'qte'                    => 12,
+        'montant'                => 16,
     ];
 
     public static function getColumns(): array
@@ -57,25 +61,23 @@ class MouvementBrutExporter extends Exporter
                 ->label('Libellé origine'),
             ExportColumn::make('mag_dest')
                 ->label('Magasin destination'),
-            ExportColumn::make('magasinDestination.libelle')
+            ExportColumn::make('magasin.libelle')
                 ->label('Libellé destination'),
             ExportColumn::make('parkod')
                 ->label('Article'),
-            ExportColumn::make('ean')
+            ExportColumn::make('article.ean')
                 ->label('EAN')
-                ->formatStateUsing(fn ($state): ?string => $state !== null ? (string) $state : null),
+                ->formatStateUsing(fn ($state): ?string => filled($state) ? (string) $state : null),
             ExportColumn::make('article.description')
                 ->label('Description'),
+            ExportColumn::make('article.marque.nom')
+                ->label('Marque'),
             ExportColumn::make('qte')
                 ->label('Qté'),
             ExportColumn::make('montant')
                 ->label('Montant'),
         ];
     }
-
-    // ---------------------------------------------------------------
-    // Styles Excel
-    // ---------------------------------------------------------------
 
     public function getXlsxCellStyle(): ?Style
     {
@@ -141,9 +143,16 @@ class MouvementBrutExporter extends Exporter
                         $style,
                     ),
                 ),
-                'typ_mvt', 'mag_orig', 'mag_dest' => Cell::fromValue(
+                'typ_mvt', 'mag_orig', 'mag_dest', 'article.marque.nom' => Cell::fromValue(
                     $value,
                     $merger->merge((new Style())->setCellAlignment(CellAlignment::CENTER), $style),
+                ),
+                'article.ean' => Cell::fromValue(
+                    filled($value) ? (string) $value : null,
+                    $merger->merge(
+                        (new Style())->setFormat('@')->setCellAlignment(CellAlignment::CENTER),
+                        $style,
+                    ),
                 ),
                 'article.description' => Cell::fromValue(
                     $value,
@@ -175,7 +184,7 @@ class MouvementBrutExporter extends Exporter
     public function configureXlsxWriterBeforeClose(Writer $writer): Writer
     {
         $sheetView = new SheetView();
-        $sheetView->setFreezeRow(2); // fige la ligne d'en-tête
+        $sheetView->setFreezeRow(2);
 
         $sheet = $writer->getCurrentSheet();
         $sheet->setSheetView($sheetView);
@@ -184,16 +193,20 @@ class MouvementBrutExporter extends Exporter
         return $writer;
     }
 
-    // ---------------------------------------------------------------
-    // Fichier / notification
-    // ---------------------------------------------------------------
-
     public function getFileName(Export $export): string
     {
         $magasin = $this->options['magasin'] ?? 'magasin';
         $periode = $this->options['periode'] ?? 'toutes-periodes';
 
-        return "mouvements-out-{$magasin}-{$periode}-{$export->getKey()}";
+        $marques = array_values(array_filter(Arr::wrap($this->options['marque'] ?? []), fn ($v) => filled($v)));
+
+        $marqueLabel = match (count($marques)) {
+            0       => 'toutes-marques',
+            1       => Str::slug(Marque::find($marques[0])?->nom ?? 'marque'),
+            default => count($marques) . '-marques',
+        };
+
+        return "mouvements-out-{$magasin}-{$periode}-{$marqueLabel}-{$export->getKey()}";
     }
 
     public static function getCompletedNotificationBody(Export $export): string

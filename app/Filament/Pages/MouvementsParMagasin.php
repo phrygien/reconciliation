@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Exports\MouvementBrutExporter;
 use App\Models\Magasin;
+use App\Models\Marque;
 use App\Models\MouvementBrut;
 use App\Models\Societe;
 use BackedEnum;
@@ -20,6 +21,7 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
@@ -92,6 +94,7 @@ class MouvementsParMagasin extends Page implements HasTable
 
         $this->activeTab = (string) ($this->magasins->first()?->mag_code ?? '');
 
+        $this->resetTableFiltersForm();
         $this->resetPage($this->getTablePaginationPageName());
     }
 
@@ -99,6 +102,7 @@ class MouvementsParMagasin extends Page implements HasTable
     {
         $this->activeTab = $code;
 
+        $this->resetTableFiltersForm();
         $this->resetPage($this->getTablePaginationPageName());
     }
 
@@ -122,10 +126,22 @@ class MouvementsParMagasin extends Page implements HasTable
         return $query->whereBetween('date_mvt', [$debut, $debut->copy()->endOfMonth()]);
     }
 
+    /** Filtre sur une ou plusieurs marques de l'article lié. */
+    protected static function appliquerMarque(Builder $query, array | string | null $marques): Builder
+    {
+        $marques = array_filter(Arr::wrap($marques), fn ($v) => filled($v));
+
+        if (empty($marques)) {
+            return $query;
+        }
+
+        return $query->whereHas('article', fn (Builder $q) => $q->whereIn('marque_id', $marques));
+    }
+
     /**
-     * Requête d'export : uniquement le magasin demandé (onglet actif) + période choisie.
+     * Requête d'export : uniquement le magasin demandé (onglet actif) + période et marques choisies.
      */
-    protected static function exportQuery(?string $magasin, ?string $periode): Builder
+    protected static function exportQuery(?string $magasin, ?string $periode, array | string | null $marque = null): Builder
     {
         $query = MouvementBrut::query();
 
@@ -136,8 +152,11 @@ class MouvementsParMagasin extends Page implements HasTable
 
         $query->duMagasin($magasin)->out();
 
-        return static::appliquerPeriode($query, $periode)
-            ->with(['magasinOrigine', 'magasin', 'article'])
+        static::appliquerPeriode($query, $periode);
+        static::appliquerMarque($query, $marque);
+
+        return $query
+            ->with(['magasinOrigine', 'magasin', 'article.marque'])
             ->orderByDesc('date_mvt');
     }
 
@@ -174,10 +193,27 @@ class MouvementsParMagasin extends Page implements HasTable
             ->all();
     }
 
+    /**
+     * Marques présentes dans les mouvements OUT du magasin actif (id => nom).
+     */
+    public function marques(): array
+    {
+        return Marque::query()
+            ->whereIn('id', function ($sub) {
+                $sub->select('articles.marque_id')
+                    ->from('articles')
+                    ->whereIn('articles.parkod', $this->baseQuery()->reorder()->select('parkod'))
+                    ->whereNotNull('articles.marque_id');
+            })
+            ->orderBy('nom')
+            ->pluck('nom', 'id')
+            ->all();
+    }
+
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => $this->baseQuery()->with(['magasinOrigine', 'magasin', 'article']))
+            ->query(fn (): Builder => $this->baseQuery()->with(['magasinOrigine', 'magasin', 'article.marque']))
             ->headerActions([
                 ExportAction::make()
                     ->label('Exporter Excel')
@@ -200,6 +236,14 @@ class MouvementsParMagasin extends Page implements HasTable
                             ->default($livewire->tableFilters['periode']['value'] ?? null)
                             ->native(false)
                             ->searchable(),
+                        Select::make('marque')
+                            ->label('Marques')
+                            ->placeholder('Toutes les marques')
+                            ->options(fn (): array => $livewire->marques())
+                            ->multiple()
+                            ->default($livewire->tableFilters['marque']['values'] ?? [])
+                            ->native(false)
+                            ->searchable(),
                     ])
                     ->options(fn (MouvementsParMagasin $livewire): array => [
                         'magasin' => $livewire->activeTab,
@@ -207,6 +251,7 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->modifyQueryUsing(fn (Builder $query, array $options): Builder => static::exportQuery(
                         $options['magasin'] ?? null,
                         $options['periode'] ?? null,
+                        $options['marque'] ?? null,
                     )),
             ])
             ->columns([
@@ -241,6 +286,27 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->description(fn (MouvementBrut $record): ?string => $record->article?->description)
                     ->sortable()
                     ->searchable(),
+                TextColumn::make('article.marque.nom')
+                    ->label('Marque')
+                    ->badge()
+                    ->color('gray')
+                    ->placeholder('—')
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        return $query->orderBy(
+                            Marque::query()
+                                ->select('marques.nom')
+                                ->join('articles', 'articles.marque_id', '=', 'marques.id')
+                                ->whereColumn('articles.parkod', 'mouvement_bruts.parkod')
+                                ->limit(1),
+                            $direction
+                        );
+                    })
+                    ->searchable(query: function (Builder $query, string $search): Builder {
+                        return $query->whereHas(
+                            'article.marque',
+                            fn (Builder $q) => $q->where('marques.nom', 'like', "%{$search}%")
+                        );
+                    }),
                 TextColumn::make('ean')
                     ->label('EAN')
                     ->copyable()
@@ -263,6 +329,14 @@ class MouvementsParMagasin extends Page implements HasTable
                     ->placeholder('Toutes les périodes')
                     ->options(fn (): array => $this->periodes())
                     ->query(fn (Builder $query, array $data): Builder => static::appliquerPeriode($query, $data['value'] ?? null)),
+                SelectFilter::make('marque')
+                    ->label('Marque')
+                    ->placeholder('Toutes les marques')
+                    ->options(fn (): array => $this->marques())
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
+                    ->query(fn (Builder $query, array $data): Builder => static::appliquerMarque($query, $data['values'] ?? [])),
             ])
             ->defaultSort('date_mvt', 'desc')
             ->paginated([25, 50, 100])
