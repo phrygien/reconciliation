@@ -54,8 +54,8 @@ class MouvementAffecteResource extends Resource
     public static function getRelations(): array
     {
         return [
-            MouvementBrutLieRelationManager::class,
-            StockMensuelsRelationManager::class,
+            //MouvementBrutLieRelationManager::class,
+            //StockMensuelsRelationManager::class,
         ];
     }
 
