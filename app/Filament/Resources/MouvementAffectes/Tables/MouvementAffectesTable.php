@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\MouvementAffectes\Tables;
 
 use App\Filament\Exports\MouvementAffecteExporter;
+use App\Models\Marque;
 use App\Models\MouvementAffecte;
 use Filafly\Icons\Phosphor\Enums\Phosphor;
 use Filament\Actions\BulkActionGroup;
@@ -24,7 +25,10 @@ class MouvementAffectesTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['societe', 'mouvementBrut.article']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with([
+                'societe',
+                'mouvementBrut.article.marque',
+            ]))
             ->defaultSort(fn (Builder $query) => $query
                 ->orderByRaw('(qte < 0) asc')   // IN d'abord, puis OUT
                 ->orderByDesc('date_comptable')
@@ -38,7 +42,8 @@ class MouvementAffectesTable
                     ->color('success')
                     ->button()
                     ->exporter(MouvementAffecteExporter::class)
-                    ->columnMappingColumns(2),
+                    ->columnMappingColumns(2)
+                    ->modifyQueryUsing(fn (Builder $query, array $options): Builder => MouvementAffecteExporter::filtrerParMarque($query, $options)),
             ])
             ->columns([
                 TextColumn::make('sens')
@@ -67,6 +72,19 @@ class MouvementAffectesTable
                     ->weight('medium')
                     ->copyable()
                     ->searchable(isIndividual: true),
+
+                TextColumn::make('mouvementBrut.article.marque.nom')
+                    ->label('Marque')
+                    ->placeholder('—')
+                    ->searchable(isIndividual: true)
+                    ->toggleable(),
+
+                TextColumn::make('mouvementBrut.article.ean')
+                    ->label('EAN')
+                    ->placeholder('—')
+                    ->copyable()
+                    ->searchable(isIndividual: true)
+                    ->toggleable(),
 
                 TextColumn::make('mouvementBrut.typ_mvt')
                     ->label('Type mvt')
@@ -152,6 +170,19 @@ class MouvementAffectesTable
                     ])
                     ->multiple(),
 
+                SelectFilter::make('marque')
+                    ->label('Marque')
+                    ->options(fn () => Marque::query()->orderBy('nom')->pluck('nom', 'id')->all())
+                    ->searchable()
+                    ->multiple()
+                    ->query(fn (Builder $query, array $data) => $query->when(
+                        $data['values'] ?? [],
+                        fn (Builder $q, array $ids) => $q->whereHas(
+                            'mouvementBrut.article',
+                            fn (Builder $a) => $a->whereIn('marque_id', $ids)
+                        )
+                    )),
+
                 Filter::make('date_comptable')
                     ->label('Date comptable')
                     ->schema([
@@ -172,7 +203,8 @@ class MouvementAffectesTable
                     ExportBulkAction::make()
                         ->label('Exporter la sélection')
                         ->exporter(MouvementAffecteExporter::class)
-                        ->columnMappingColumns(2),
+                        ->columnMappingColumns(2)
+                        ->modifyQueryUsing(fn (Builder $query, array $options): Builder => MouvementAffecteExporter::filtrerParMarque($query, $options)),
                     DeleteBulkAction::make(),
                 ]),
             ])

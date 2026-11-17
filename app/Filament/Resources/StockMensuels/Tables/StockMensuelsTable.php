@@ -4,6 +4,7 @@ namespace App\Filament\Resources\StockMensuels\Tables;
 
 use App\Filament\Exports\StockMensuelExporter;
 use App\Models\Article;
+use App\Models\Marque;
 use App\Models\Periode;
 use App\Models\Societe;
 use App\Models\StockMensuel;
@@ -332,7 +333,8 @@ class StockMensuelsTable
             . 'des filtres et recherches en cours, toutes pages confondues, et aussi par période '
             . 'quand le groupement est actif.</p>'
             . '<p><strong>Filtres :</strong> « Stock négatif » affiche les articles dont au moins '
-            . 'une société a une quantité de clôture négative.</p>'
+            . 'une société a une quantité de clôture négative. « Marque » restreint aux articles '
+            . 'des marques choisies.</p>'
             . '</div>'
         );
     }
@@ -431,6 +433,19 @@ class StockMensuelsTable
                     ]))
                     ->searchable()
                     ->multiple(),
+
+                SelectFilter::make('marque')
+                    ->label('Marque')
+                    ->options(fn () => Marque::query()->orderBy('nom')->pluck('nom', 'id')->all())
+                    ->searchable()
+                    ->multiple()
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        $data['values'] ?? [],
+                        fn (Builder $q, array $ids) => $q->whereHas(
+                            'article',
+                            fn (Builder $a) => $a->whereIn('marque_id', $ids)
+                        )
+                    )),
 
                 // Une société au moins avec une clôture négative sur (période, article).
                 Filter::make('stock_negatif')

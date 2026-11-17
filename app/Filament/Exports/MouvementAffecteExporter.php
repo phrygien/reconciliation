@@ -2,11 +2,13 @@
 
 namespace App\Filament\Exports;
 
+use App\Models\Marque;
 use App\Models\MouvementAffecte;
 use Filament\Actions\Exports\Enums\ExportFormat;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
+use Filament\Forms\Components\Select;
 use Illuminate\Database\Eloquent\Builder;
 use OpenSpout\Common\Entity\Cell;
 use OpenSpout\Common\Entity\Row;
@@ -33,6 +35,8 @@ class MouvementAffecteExporter extends Exporter
         'date_comptable'      => 16,
         'parkod'              => 18,
         'article_description' => 40,
+        'marque_nom'          => 20,
+        'ean'                 => 18,
         'typ_mvt'             => 12,
         'mag_orig'            => 16,
         'mag_dest'            => 18,
@@ -68,6 +72,14 @@ class MouvementAffecteExporter extends Exporter
             ExportColumn::make('article_description')
                 ->label('Désignation')
                 ->state(fn (MouvementAffecte $record) => $record->mouvementBrut?->article?->description),
+
+            ExportColumn::make('marque_nom')
+                ->label('Marque')
+                ->state(fn (MouvementAffecte $record) => $record->mouvementBrut?->article?->marque?->nom),
+
+            ExportColumn::make('ean')
+                ->label('EAN')
+                ->state(fn (MouvementAffecte $record) => (string) ($record->mouvementBrut?->article?->ean ?? '')),
 
             ExportColumn::make('typ_mvt')
                 ->label('Type mvt')
@@ -107,9 +119,41 @@ class MouvementAffecteExporter extends Exporter
         ];
     }
 
+    public static function getOptionsFormComponents(): array
+    {
+        return [
+            Select::make('marque_id')
+                ->label('Marque (optionnel)')
+                ->placeholder('Toutes les marques')
+                ->options(fn () => Marque::query()->orderBy('nom')->pluck('nom', 'id')->all())
+                ->searchable()
+                ->multiple(),
+        ];
+    }
+
+    /**
+     * Filtre optionnel par marque (via mouvement brut → article).
+     * Aucune marque choisie = pas de filtre.
+     *
+     * @param array<string, mixed> $options
+     */
+    public static function filtrerParMarque(Builder $query, array $options): Builder
+    {
+        $marqueIds = array_values(array_filter((array) ($options['marque_id'] ?? [])));
+
+        if ($marqueIds === []) {
+            return $query;
+        }
+
+        return $query->whereHas(
+            'mouvementBrut.article',
+            fn (Builder $q) => $q->whereIn('marque_id', $marqueIds)
+        );
+    }
+
     public static function modifyQuery(Builder $query): Builder
     {
-        return $query->with(['societe', 'mouvementBrut.article']);
+        return $query->with(['societe', 'mouvementBrut.article.marque']);
     }
 
     public function getFormats(): array
@@ -184,8 +228,11 @@ class MouvementAffecteExporter extends Exporter
                 default => null,
             };
 
+            // EAN en texte : évite la notation scientifique et les zéros perdus.
+            $cellValue = $column === 'ean' ? (string) $value : $value;
+
             $cells[] = Cell::fromValue(
-                $value,
+                $cellValue,
                 $custom ? $merger->merge($custom, $style) : $style,
             );
         }
