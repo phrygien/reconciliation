@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Exception;
 use InvalidArgumentException;
+use App\Models\RegularisationStock;
+use App\Models\StockMensuel;
+use Carbon\Carbon;
 
 class Regularisation
 {
@@ -16,6 +19,9 @@ class Regularisation
 
     public const FACTURER_A_ADV   = 'ADV';
     public const FACTURER_A_COSMA = 'COSMA';
+
+    private const CAS_TOTAL      = 'COMPENSABLE_TOTAL';
+    private const STATUT_FACTURE = 'FACTURE';
 
     /**
      * Liste paginée des articles à régulariser et des anomalies (période OUVERTE).
@@ -124,6 +130,17 @@ class Regularisation
 
         } catch (Exception $e) {
             Log::error('listeRegularisation : ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    // regularisation (compensation entre les stock virtuels)
+    public function regulariserLeStocks(){
+        try{
+
+
+
+        }catch(Exception $e){
             throw $e;
         }
     }
