@@ -52,7 +52,7 @@ class Regularisation
                 ) AS qte_a_facturer
             ");
 
-            // 3) cas, sens de facturation, PAMP, montant, reste non compensé
+            // 3) cas, sens de facturation, PAMP, valeur à facturer, reste non compensé
             $final = DB::query()->fromSub($calc, 'c')->selectRaw("
                 c.periode,
                 c.parkod,
@@ -65,18 +65,27 @@ class Regularisation
                     ELSE 'NON_COMPENSABLE'
                 END AS cas,
                 CASE WHEN c.qte_a_facturer = 0 THEN NULL
-                     WHEN c.qte_adv < 0 THEN 'ADV' ELSE 'COSMA' END AS facturer_a,
+                    WHEN c.qte_adv < 0 THEN 'ADV' ELSE 'COSMA' END AS facturer_a,
                 CASE WHEN c.qte_a_facturer = 0 THEN NULL
-                     WHEN c.qte_adv < 0 THEN 'COSMA' ELSE 'ADV' END AS facture_par,
+                    WHEN c.qte_adv < 0 THEN 'COSMA' ELSE 'ADV' END AS facture_par,
                 c.qte_a_facturer,
+
+                -- PAMP d'ouverture de chaque stock (visible même pour les anomalies)
+                ROUND(c.val_adv   / NULLIF(c.qte_adv,   0), 4) AS pamp_adv,
+                ROUND(c.val_cosma / NULLIF(c.qte_cosma, 0), 4) AS pamp_cosma,
+
+                -- PAMP retenu pour la facture = celui du stock qui cède
                 CASE WHEN c.qte_a_facturer = 0 THEN NULL
-                     WHEN c.qte_adv < 0 THEN ROUND(c.val_cosma / NULLIF(c.qte_cosma, 0), 4)
-                     ELSE ROUND(c.val_adv / NULLIF(c.qte_adv, 0), 4)
+                    WHEN c.qte_adv < 0 THEN ROUND(c.val_cosma / NULLIF(c.qte_cosma, 0), 4)
+                    ELSE                    ROUND(c.val_adv   / NULLIF(c.qte_adv,   0), 4)
                 END AS pamp,
+
+                -- valeur à facturer = qte_a_facturer x pamp
                 CASE WHEN c.qte_a_facturer = 0 THEN NULL
-                     WHEN c.qte_adv < 0 THEN ROUND(c.qte_a_facturer * c.val_cosma / NULLIF(c.qte_cosma, 0), 2)
-                     ELSE ROUND(c.qte_a_facturer * c.val_adv / NULLIF(c.qte_adv, 0), 2)
-                END AS montant_facture,
+                    WHEN c.qte_adv < 0 THEN ROUND(c.qte_a_facturer * c.val_cosma / NULLIF(c.qte_cosma, 0), 2)
+                    ELSE                    ROUND(c.qte_a_facturer * c.val_adv   / NULLIF(c.qte_adv,   0), 2)
+                END AS valeur_a_facturer,
+
                 GREATEST(-c.qte_total, 0) AS qte_residuelle
             ");
 
