@@ -9,11 +9,11 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\LazyCollection;
 use Exception;
 use InvalidArgumentException;
+use Throwable;
 use App\Models\RegularisationStock;
 use App\Models\StockMensuel;
 use App\Models\Facture;
 use Carbon\Carbon;
-use App\Services\FileProcessor;
 
 class Regularisation
 {
@@ -29,6 +29,25 @@ class Regularisation
 
     private const STATUT_A_FACTURER = 'A_FACTURER';
     private const STATUT_ANNULE     = 'ANNULE';
+
+    // Raisons pour lesquelles une ligne est ignorée
+    public const RAISON_PERIODE_FERMEE       = 'PERIODE_FERMEE';
+    public const RAISON_STOCKS_INCOMPLETS    = 'STOCKS_INCOMPLETS';
+    public const RAISON_PAS_DE_DEBITEUR      = 'PAS_DE_DEBITEUR';
+    public const RAISON_FILTRE_FACTURER_A    = 'FILTRE_FACTURER_A';
+    public const RAISON_CREDITEUR_INSUFFISANT = 'CREDITEUR_INSUFFISANT';
+    public const RAISON_DEJA_REGULARISE      = 'DEJA_REGULARISE';
+    public const RAISON_QTE_DECIMALE         = 'QTE_DECIMALE';
+
+    public const RAISONS_LABELS = [
+        self::RAISON_PERIODE_FERMEE        => 'période non ouverte',
+        self::RAISON_STOCKS_INCOMPLETS     => 'stocks ADV/COSMA incomplets ou en double',
+        self::RAISON_PAS_DE_DEBITEUR       => 'plus de débiteur/créditeur (données modifiées)',
+        self::RAISON_FILTRE_FACTURER_A     => 'ne correspond plus au filtre « Facturer à »',
+        self::RAISON_CREDITEUR_INSUFFISANT => 'créditeur ne couvre pas le négatif',
+        self::RAISON_DEJA_REGULARISE       => 'déjà régularisé',
+        self::RAISON_QTE_DECIMALE          => 'quantité non entière',
+    ];
 
     private FileProcessor $processor;
 
@@ -81,7 +100,7 @@ class Regularisation
     }
 
     /**
-     * Requête commune (liste + export).
+     * Requête commune (liste + export + régularisation).
      *
      * @param  int[] $marqueIds
      */
@@ -104,6 +123,7 @@ class Regularisation
             ->join('periodes as p', function ($j) {
                 $j->on('p.periode', '=', 'sm.periode')->where('p.statut', 'OUVERTE');
             })
+            ->whereIn('sm.code_stock', [self::FACTURER_A_ADV, self::FACTURER_A_COSMA])
             ->when($periode, fn ($q) => $q->where('sm.periode', $periode))
             ->selectRaw("
                 sm.periode,
@@ -191,6 +211,9 @@ class Regularisation
     /**
      * Régularise les COMPENSABLE_TOTAL des périodes OUVERTES et génère la facture interne.
      *
+     * Pas de transaction globale : chaque ligne a la sienne (regulariserUneLigne),
+     * ainsi une ligne en erreur n'invalide pas les autres.
+     *
      * @param  string|null $periode    null = toutes les périodes ouvertes
      * @param  string|null $facturerA  null = tous, sinon 'ADV' ou 'COSMA'
      * @param  int[]       $marqueIds  [] = toutes les marques
@@ -202,8 +225,6 @@ class Regularisation
         ?int $user_id = null,
     ): array {
         try {
-            DB::beginTransaction();
-
             // mêmes filtres que la liste, limités aux COMPENSABLE_TOTAL
             // (get() et non cursor() : on modifie stock_mensuels pendant la boucle)
             $candidats = $this->requete(self::FILTRE_A_REGULARISER, $periode, $facturerA, $marqueIds)
@@ -213,70 +234,103 @@ class Regularisation
             $lot   = now()->format('YmdHis'); // un lot = un jeu de factures
             $bilan = [
                 'filtres'       => compact('periode', 'facturerA', 'marqueIds'),
+                'candidats'     => $candidats->count(),
                 'regularises'   => 0,
                 'ignores'       => 0,
+                'raisons'       => [],   // raison => nombre de lignes ignorées
                 'total_facture' => 0.0,
                 'factures'      => [],
                 'erreurs'       => [],
             ];
 
-            Log::info("Régularisation : {$candidats->count()} ligne(s) COMPENSABLE_TOTAL à traiter", $bilan['filtres']);
+            Log::info("Régularisation : {$bilan['candidats']} ligne(s) COMPENSABLE_TOTAL à traiter", $bilan['filtres']);
 
             foreach ($candidats as $c) {
                 try {
-                    $reg = $this->regulariserUneLigne($c->periode, $c->parkod, $lot, $facturerA, $user_id);
+                    $res = $this->regulariserUneLigne($c->periode, $c->parkod, $lot, $facturerA, $user_id);
 
-                    if ($reg === null) {
+                    if (is_string($res)) {
                         $bilan['ignores']++;
+                        $bilan['raisons'][$res] = ($bilan['raisons'][$res] ?? 0) + 1;
+
+                        Log::warning("Régularisation ignorée {$c->periode} / {$c->parkod} : {$res}");
                         continue;
                     }
 
                     $bilan['regularises']++;
-                    $bilan['total_facture'] += (float) $reg->valeur;
-                } catch (Exception $e) {
+                } catch (Throwable $e) {
                     // une ligne en erreur ne bloque pas les autres
                     Log::error("Régularisation {$c->periode} / {$c->parkod} : " . $e->getMessage());
                     $bilan['erreurs'][] = "{$c->periode} / {$c->parkod} : " . $e->getMessage();
                 }
             }
 
-            // recalculation de la facture dans la base
-            $this->recalculerFacturesDuLot($lot);
+            // recalcul des totaux des factures du lot, puis bilan lu depuis la base
+            DB::transaction(fn () => $this->recalculerFacturesDuLot($lot));
+
             $factures = Facture::where('lot', $lot)
                 ->get(['id', 'numero', 'periode', 'facturer_a', 'facture_par', 'nb_articles', 'total_qte', 'total']);
 
             $bilan['factures']      = $factures->toArray();
             $bilan['total_facture'] = round((float) $factures->sum('total'), 2);
+
             Log::info('Régularisation terminée', $bilan);
 
-            DB::commit();
             return $bilan;
-
-        } catch (Exception $e) {
-            DB::rollBack();
+        } catch (Throwable $e) {
             Log::error('regulariserLeStocks : ' . $e->getMessage());
             throw $e;
         }
     }
 
-    private function regulariserUneLigne(string $periode, string $parkod, string $lot, ?string $facturerA = null, ?int $user_id = null): ?RegularisationStock
-    {
+    /**
+     * @return RegularisationStock|string  la régularisation créée, ou une RAISON_* si la ligne est ignorée
+     */
+    private function regulariserUneLigne(
+        string $periode,
+        string $parkod,
+        string $lot,
+        ?string $facturerA = null,
+        ?int $user_id = null,
+    ): RegularisationStock|string {
         return DB::transaction(function () use ($periode, $parkod, $lot, $facturerA, $user_id) {
 
-            // relecture avec verrou : les données ont pu changer depuis la requête
-            $stocks = StockMensuel::where('periode', $periode)
-                ->where('parkod', $parkod)
-                ->whereIn('code_stock', ['ADV', 'COSMA'])
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('code_stock');
+            // la période doit toujours être ouverte (relue sous transaction)
+            $ouverte = DB::table('periodes')
+                ->where('periode', $periode)
+                ->where('statut', 'OUVERTE')
+                ->exists();
 
-            if ($stocks->count() !== 2) {
-                return null;
+            if (! $ouverte) {
+                return self::RAISON_PERIODE_FERMEE;
             }
 
-            $adv   = $stocks['ADV'];
-            $cosma = $stocks['COSMA'];
+            // relecture avec verrou : les données ont pu changer depuis la requête
+            // code_stock normalisé (trim + majuscules) pour ne pas dépendre de la casse
+            $stocks = StockMensuel::where('periode', $periode)
+                ->where('parkod', $parkod)
+                ->whereIn('code_stock', [self::FACTURER_A_ADV, self::FACTURER_A_COSMA])
+                ->lockForUpdate()
+                ->get()
+                ->groupBy(fn (StockMensuel $s) => strtoupper(trim((string) $s->code_stock)));
+
+            // exactement une ligne ADV et une ligne COSMA
+            if (
+                $stocks->count() !== 2
+                || ($stocks[self::FACTURER_A_ADV]->count() ?? 0) !== 1
+                || ($stocks[self::FACTURER_A_COSMA]->count() ?? 0) !== 1
+            ) {
+                Log::warning("Régularisation {$periode}/{$parkod} : stocks inattendus", [
+                    'codes' => $stocks->map->count()->all(),
+                ]);
+
+                return self::RAISON_STOCKS_INCOMPLETS;
+            }
+
+            /** @var StockMensuel $adv */
+            $adv = $stocks[self::FACTURER_A_ADV]->first();
+            /** @var StockMensuel $cosma */
+            $cosma = $stocks[self::FACTURER_A_COSMA]->first();
 
             // le négatif est le débiteur (il a pris), le positif est le créditeur
             if ($adv->qte_ouverture < 0 && $cosma->qte_ouverture > 0) {
@@ -284,32 +338,42 @@ class Regularisation
             } elseif ($cosma->qte_ouverture < 0 && $adv->qte_ouverture > 0) {
                 [$deb, $cre] = [$cosma, $adv];
             } else {
-                return null;
+                return self::RAISON_PAS_DE_DEBITEUR;
             }
 
             // le débiteur relu sous verrou doit toujours correspondre au filtre demandé
-            if ($facturerA !== null && $deb->code_stock !== $facturerA) {
-                return null;
+            if ($facturerA !== null && strtoupper(trim((string) $deb->code_stock)) !== $facturerA) {
+                return self::RAISON_FILTRE_FACTURER_A;
             }
 
-            $qte = (int) abs($deb->qte_ouverture);
+            // les quantités doivent être entières (sinon (int) tronquerait en silence)
+            $qteBrute = abs((float) $deb->qte_ouverture);
+
+            if (abs($qteBrute - round($qteBrute)) > 0.0001) {
+                Log::warning("Régularisation {$periode}/{$parkod} : quantité non entière ({$qteBrute})");
+
+                return self::RAISON_QTE_DECIMALE;
+            }
+
+            $qte = (int) round($qteBrute);
 
             // total seulement : le créditeur doit couvrir tout le négatif
-            if ($cre->qte_ouverture < $qte) {
-                return null;
+            if ((float) $cre->qte_ouverture < $qte) {
+                return self::RAISON_CREDITEUR_INSUFFISANT;
             }
 
-            // déjà régularisé
+            // déjà régularisé (une régularisation annulée ne bloque pas)
             $existe = RegularisationStock::where('periode', $periode)
                 ->where('parkod', $parkod)
                 ->where('code_stock_debiteur', $deb->code_stock)
+                ->where('statut', '!=', self::STATUT_ANNULE)
                 ->exists();
 
             if ($existe) {
-                return null;
+                return self::RAISON_DEJA_REGULARISE;
             }
 
-            // valorisation au PAMP d'ouverture du stock qui cède (recalculation)
+            // valorisation au PAMP d'ouverture du stock qui cède
             $pamp   = round($cre->val_ouverture / $cre->qte_ouverture, 4);
             $valeur = round($qte * $cre->val_ouverture / $cre->qte_ouverture, 2);
 
@@ -382,9 +446,9 @@ class Regularisation
                 $s->save();
             }
 
-            // recalculation du stock mensuel de la periode corriger
-            $this->processor->recalculerStockMensuel($parkod, $periode, "ADV");
-            $this->processor->recalculerStockMensuel($parkod, $periode, "COSMA");
+            // recalcul du stock mensuel de la période corrigée
+            $this->processor->recalculerStockMensuel($parkod, $periode, self::FACTURER_A_ADV);
+            $this->processor->recalculerStockMensuel($parkod, $periode, self::FACTURER_A_COSMA);
 
             return $reg;
         });
@@ -413,5 +477,4 @@ class Regularisation
 
         $facture->save();
     }
-
 }

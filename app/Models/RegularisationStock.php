@@ -67,4 +67,14 @@ class RegularisationStock extends Model
     {
         return $query->where('periode', $periode);
     }
+
+    public function facture(): BelongsTo
+    {
+        return $this->belongsTo(Facture::class, 'facture_id');
+    }
+
+    public function article(): BelongsTo
+    {
+        return $this->belongsTo(Article::class, 'parkod', 'parkod');
+    }
 }

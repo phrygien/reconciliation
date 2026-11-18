@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Resources\Articles\ArticleResource;
+use App\Jobs\RegulariserStocksJob;
 use App\Models\Marque;
 use App\Services\Regularisation;
 use BackedEnum;
@@ -34,7 +35,6 @@ use OpenSpout\Writer\XLSX\Entity\SheetView;
 use OpenSpout\Writer\XLSX\Options;
 use OpenSpout\Writer\XLSX\Writer;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Throwable;
 use UnitEnum;
 
 class ListeRegularisation extends Page implements HasTable
@@ -55,7 +55,7 @@ class ListeRegularisation extends Page implements HasTable
 
     protected string $view = 'filament.pages.liste-regularisation';
 
-    /** Nombre maximum de lignes affichées dans l'aperçu du assistant. */
+    /** Nombre maximum de lignes affichées dans l'aperçu de l'assistant. */
     protected const APERCU_LIMITE = 200;
 
     public function getMaxContentWidth(): Width
@@ -192,57 +192,25 @@ class ListeRegularisation extends Page implements HasTable
     }
 
     /**
-     * Régularise les « Compensable total » correspondant aux filtres actifs.
+     * Lance la régularisation en arrière-plan (queue) avec les filtres actifs.
      * Le filtre « Affichage » est ignoré : le service ne traite que les COMPENSABLE_TOTAL.
      */
     public function regulariserStocks(): void
     {
-        $filtres = $this->filtresCourants();
+        $f = $this->filtresCourants();
 
-        try {
-            $bilan = app(Regularisation::class)->regulariserLeStocks(
-                periode: $filtres['periode'],
-                facturerA: $filtres['facturerA'],
-                marqueIds: $filtres['marqueIds'],
-                user_id: auth()->id(),
-            );
-        } catch (Throwable $e) {
-            report($e);
+        RegulariserStocksJob::dispatch(
+            $f['periode'],
+            $f['facturerA'],
+            $f['marqueIds'],
+            auth()->id(),
+        );
 
-            Notification::make()
-                ->title('Échec de la régularisation')
-                ->body($e->getMessage())
-                ->danger()
-                ->persistent()
-                ->send();
-
-            return;
-        }
-
-        if ($bilan['regularises'] === 0) {
-            Notification::make()
-                ->title('Aucune ligne régularisée')
-                ->body('Aucun « Compensable total » à traiter avec ces filtres (' . $bilan['ignores'] . ' ignorée(s)).')
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $nbFactures = count($bilan['factures']);
-        $total      = number_format($bilan['total_facture'], 2, ',', ' ');
-
-        $notification = Notification::make()
-            ->title('Régularisation effectuée')
-            ->body(
-                "{$bilan['regularises']} ligne(s) régularisée(s), {$nbFactures} facture(s) générée(s), "
-                . "total {$total}. {$bilan['ignores']} ignorée(s)."
-                . (count($bilan['erreurs']) > 0 ? ' ' . count($bilan['erreurs']) . ' erreur(s), voir les logs.' : '')
-            );
-
-        count($bilan['erreurs']) > 0 ? $notification->warning() : $notification->success();
-
-        $notification->persistent()->send();
+        Notification::make()
+            ->title('Régularisation lancée')
+            ->body('Le traitement tourne en arrière-plan. Une notification vous prévient à la fin.')
+            ->info()
+            ->send();
     }
 
     /**
