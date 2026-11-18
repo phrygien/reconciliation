@@ -59,23 +59,23 @@ class ListeRegularisation extends Page implements HasTable
      * Format null = texte.
      */
     protected const EXPORT_COLUMNS = [
-        'periode'           => ['Période',         12, null,                              false],
-        'parkod'            => ['Article',         16, null,                              false],
-        'ean'               => ['EAN',             18, null,                              false],
-        'marque'            => ['Marque',          20, null,                              false],
-        'description'       => ['Description',     45, null,                              false],
-        'qte_adv'           => ['Qté ADV',         12, '#,##0.00;[Red]-#,##0.00',         false],
-        'qte_cosma'         => ['Qté COSMA',       12, '#,##0.00;[Red]-#,##0.00',         false],
-        'qte_total'         => ['Qté totale',      12, '#,##0.00;[Red]-#,##0.00',         false],
-        'pamp_adv'          => ['PAMP ADV',        12, '#,##0.0000',                      false],
-        'pamp_cosma'        => ['PAMP COSMA',      12, '#,##0.0000',                      false],
-        'cas'               => ['Cas',             22, null,                              false],
-        'facturer_a'        => ['Facturer à',      12, null,                              false],
-        'facture_par'       => ['Facturé par',     12, null,                              false],
-        'qte_a_facturer'    => ['Qté à facturer',  14, '#,##0.00',                        false],
-        'pamp'              => ['PAMP retenu',     12, '#,##0.0000',                      false],
-        'valeur_a_facturer' => ['Montant facturé', 16, '#,##0.00',                        true],
-        'qte_residuelle'    => ['Qté résiduelle',  14, '#,##0.00;[Red]-#,##0.00',         false],
+        'periode'           => ['Période',         12, null,                      false],
+        'parkod'            => ['Article',         16, null,                      false],
+        'ean'               => ['EAN',             18, null,                      false],
+        'marque'            => ['Marque',          20, null,                      false],
+        'description'       => ['Description',     45, null,                      false],
+        'qte_adv'           => ['Qté ADV',         12, '#,##0.00;[Red]-#,##0.00', false],
+        'qte_cosma'         => ['Qté COSMA',       12, '#,##0.00;[Red]-#,##0.00', false],
+        'qte_total'         => ['Qté totale',      12, '#,##0.00;[Red]-#,##0.00', false],
+        'pamp_adv'          => ['PAMP ADV',        12, '#,##0.0000',              false],
+        'pamp_cosma'        => ['PAMP COSMA',      12, '#,##0.0000',              false],
+        'cas'               => ['Cas',             22, null,                      false],
+        'facturer_a'        => ['Facturer à',      12, null,                      false],
+        'facture_par'       => ['Facturé par',     12, null,                      false],
+        'qte_a_facturer'    => ['Qté à facturer',  14, '#,##0.00',                false],
+        'pamp'              => ['PAMP retenu',     12, '#,##0.0000',              false],
+        'valeur_a_facturer' => ['Montant facturé', 16, '#,##0.00',                true],
+        'qte_residuelle'    => ['Qté résiduelle',  14, '#,##0.00;[Red]-#,##0.00', false],
     ];
 
     protected const CAS_LABELS = [
@@ -96,20 +96,20 @@ class ListeRegularisation extends Page implements HasTable
     /**
      * État courant des filtres, normalisé pour le service.
      *
-     * @return array{filtre: string, periode: ?string, facturerA: ?string, marqueId: ?int}
+     * @return array{filtre: string, periode: ?string, facturerA: ?string, marqueIds: int[]}
      */
     protected function filtresCourants(): array
     {
         $filtre    = data_get($this->tableFilters, 'filtre.value');
         $periode   = data_get($this->tableFilters, 'periode.value');
         $facturerA = data_get($this->tableFilters, 'facturer_a.value');
-        $marqueId  = data_get($this->tableFilters, 'marque_id.value');
+        $marques   = data_get($this->tableFilters, 'marque_id.values');
 
         return [
             'filtre'    => $filtre ?: Regularisation::FILTRE_ALL,
             'periode'   => $periode ?: null,
             'facturerA' => $facturerA ?: null,
-            'marqueId'  => $marqueId ? (int) $marqueId : null,
+            'marqueIds' => array_values(array_map('intval', array_filter((array) $marques))),
         ];
     }
 
@@ -130,11 +130,7 @@ class ListeRegularisation extends Page implements HasTable
     {
         $part = fn (string $name): BorderPart => new BorderPart(
             $name,
-            Color::rgb(
-                hexdec(substr($color, 0, 2)),
-                hexdec(substr($color, 2, 2)),
-                hexdec(substr($color, 4, 2)),
-            ),
+            $this->xlsxColor($color),
             Border::WIDTH_THIN,
             Border::STYLE_SOLID,
         );
@@ -443,8 +439,9 @@ class ListeRegularisation extends Page implements HasTable
                     ]),
 
                 SelectFilter::make('marque_id')
-                    ->label('Marque')
+                    ->label('Marques')
                     ->placeholder('Toutes les marques')
+                    ->multiple()
                     ->searchable()
                     ->options(fn () => Marque::query()
                         ->orderBy('nom')

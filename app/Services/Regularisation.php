@@ -24,7 +24,7 @@ class Regularisation
      *
      * @param  string|null $periode    null = toutes les périodes ouvertes
      * @param  string|null $facturerA  null = tous, sinon 'ADV' ou 'COSMA'
-     * @param  int|null    $marqueId   null = toutes les marques
+     * @param  int[]       $marqueIds  [] = toutes les marques
      */
     public function listeRegularisation(
         int $page = 1,
@@ -32,10 +32,10 @@ class Regularisation
         string $filtre = self::FILTRE_ALL,
         ?string $periode = null,
         ?string $facturerA = null,
-        ?int $marqueId = null,
+        array $marqueIds = [],
     ): LengthAwarePaginator {
         try {
-            return $this->requete($filtre, $periode, $facturerA, $marqueId)
+            return $this->requete($filtre, $periode, $facturerA, $marqueIds)
                 ->paginate($perPage, ['*'], 'page', $page);
         } catch (Exception $e) {
             Log::error('listeRegularisation : ' . $e->getMessage());
@@ -45,15 +45,17 @@ class Regularisation
 
     /**
      * Toutes les lignes (sans pagination), lues en flux, pour l'export.
+     *
+     * @param  int[] $marqueIds
      */
     public function exportRegularisation(
         string $filtre = self::FILTRE_ALL,
         ?string $periode = null,
         ?string $facturerA = null,
-        ?int $marqueId = null,
+        array $marqueIds = [],
     ): LazyCollection {
         try {
-            return $this->requete($filtre, $periode, $facturerA, $marqueId)->cursor();
+            return $this->requete($filtre, $periode, $facturerA, $marqueIds)->cursor();
         } catch (Exception $e) {
             Log::error('exportRegularisation : ' . $e->getMessage());
             throw $e;
@@ -62,12 +64,14 @@ class Regularisation
 
     /**
      * Requête commune (liste + export).
+     *
+     * @param  int[] $marqueIds
      */
     protected function requete(
         string $filtre,
         ?string $periode,
         ?string $facturerA,
-        ?int $marqueId,
+        array $marqueIds,
     ): Builder {
         if (! in_array($filtre, [self::FILTRE_ALL, self::FILTRE_A_REGULARISER, self::FILTRE_ANOMALIES], true)) {
             throw new InvalidArgumentException("Filtre inconnu : {$filtre}");
@@ -156,7 +160,7 @@ class Regularisation
             ->when($filtre === self::FILTRE_A_REGULARISER, fn ($q) => $q->where('r.qte_a_facturer', '>', 0))
             ->when($filtre === self::FILTRE_ANOMALIES,     fn ($q) => $q->where('r.qte_residuelle', '>', 0))
             ->when($facturerA,                             fn ($q) => $q->where('r.facturer_a', $facturerA))
-            ->when($marqueId,                              fn ($q) => $q->where('a.marque_id', $marqueId))
+            ->when($marqueIds !== [],                      fn ($q) => $q->whereIn('a.marque_id', $marqueIds))
             ->orderBy('r.periode')
             ->orderBy('r.cas')
             ->orderBy('r.parkod');
