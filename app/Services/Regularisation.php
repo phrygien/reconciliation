@@ -22,6 +22,7 @@ class Regularisation
      *
      * @param  string|null $periode    null = toutes les périodes ouvertes
      * @param  string|null $facturerA  null = tous, sinon 'ADV' ou 'COSMA'
+     * @param  int|null    $marqueId   null = toutes les marques
      */
     public function listeRegularisation(
         int $page = 1,
@@ -29,6 +30,7 @@ class Regularisation
         string $filtre = self::FILTRE_ALL,
         ?string $periode = null,
         ?string $facturerA = null,
+        ?int $marqueId = null,
     ): LengthAwarePaginator {
         try {
             if (! in_array($filtre, [self::FILTRE_ALL, self::FILTRE_A_REGULARISER, self::FILTRE_ANOMALIES], true)) {
@@ -110,6 +112,7 @@ class Regularisation
                 ->leftJoin('marques as m', 'm.id', '=', 'a.marque_id')
                 ->select([
                     'r.*',
+                    'a.id as article_id',
                     'a.ean',
                     'a.description',
                     'm.nom as marque',
@@ -117,6 +120,7 @@ class Regularisation
                 ->when($filtre === self::FILTRE_A_REGULARISER, fn ($q) => $q->where('r.qte_a_facturer', '>', 0))
                 ->when($filtre === self::FILTRE_ANOMALIES,     fn ($q) => $q->where('r.qte_residuelle', '>', 0))
                 ->when($facturerA,                             fn ($q) => $q->where('r.facturer_a', $facturerA))
+                ->when($marqueId,                              fn ($q) => $q->where('a.marque_id', $marqueId))
                 ->orderBy('r.periode')
                 ->orderBy('r.cas')
                 ->orderBy('r.parkod')

@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\Articles\ArticleResource;
+use App\Models\Marque;
 use App\Services\Regularisation;
 use BackedEnum;
 use Filament\Pages\Page;
@@ -14,6 +16,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use UnitEnum;
 
 class ListeRegularisation extends Page implements HasTable
 {
@@ -21,7 +24,11 @@ class ListeRegularisation extends Page implements HasTable
 
     protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedScale;
 
-    protected static ?string $navigationLabel = 'Régularisation';
+    protected static string | UnitEnum | null $navigationGroup = 'Régularisation';
+
+    protected static ?int $navigationSort = 8;
+
+    protected static ?string $navigationLabel = 'À régulariser';
 
     protected static ?string $title = 'Régularisation des stocks';
 
@@ -42,6 +49,7 @@ class ListeRegularisation extends Page implements HasTable
         $filtre    = data_get($this->tableFilters, 'filtre.value');
         $periode   = data_get($this->tableFilters, 'periode.value');
         $facturerA = data_get($this->tableFilters, 'facturer_a.value');
+        $marqueId  = data_get($this->tableFilters, 'marque_id.value');
 
         return app(Regularisation::class)->listeRegularisation(
             page: $page,
@@ -49,6 +57,7 @@ class ListeRegularisation extends Page implements HasTable
             filtre: $filtre ?: Regularisation::FILTRE_ALL,
             periode: $periode ?: null,
             facturerA: $facturerA ?: null,
+            marqueId: $marqueId ? (int) $marqueId : null,
         );
     }
 
@@ -76,6 +85,11 @@ class ListeRegularisation extends Page implements HasTable
 
                 return $paginator;
             })
+            ->recordUrl(
+                fn (array $record): ?string => ! empty($record['article_id'])
+                    ? ArticleResource::getUrl('view', ['record' => $record['article_id']])
+                    : null
+            )
             ->columns([
                 TextColumn::make('periode')
                     ->label('Période'),
@@ -206,8 +220,17 @@ class ListeRegularisation extends Page implements HasTable
                         Regularisation::FACTURER_A_ADV   => 'ADV',
                         Regularisation::FACTURER_A_COSMA => 'COSMA',
                     ]),
+
+                SelectFilter::make('marque_id')
+                    ->label('Marque')
+                    ->placeholder('Toutes les marques')
+                    ->searchable()
+                    ->options(fn () => Marque::query()
+                        ->orderBy('nom')
+                        ->pluck('nom', 'id')
+                        ->all()),
             ])
-            ->filtersFormColumns(3)
+            ->filtersFormColumns(4)
             ->deferFilters(false)
             ->persistFiltersInSession()
             ->paginated([25, 50, 100])
