@@ -14,19 +14,33 @@ class Regularisation
     public const FILTRE_A_REGULARISER = 'A_REGULARISER'; // qte_a_facturer > 0
     public const FILTRE_ANOMALIES     = 'ANOMALIES';     // reste négatif après compensation
 
+    public const FACTURER_A_ADV   = 'ADV';
+    public const FACTURER_A_COSMA = 'COSMA';
+
     /**
      * Liste paginée des articles à régulariser et des anomalies (période OUVERTE).
      *
-     * @param  string|null $periode  null = toutes les périodes ouvertes
+     * @param  string|null $periode    null = toutes les périodes ouvertes
+     * @param  string|null $facturerA  null = tous, sinon 'ADV' ou 'COSMA'
      */
-    public function listeRegularisation( int $page = 1, int $perPage = 50, string $filtre = self::FILTRE_ALL, ?string $periode = null): LengthAwarePaginator {
+    public function listeRegularisation(
+        int $page = 1,
+        int $perPage = 50,
+        string $filtre = self::FILTRE_ALL,
+        ?string $periode = null,
+        ?string $facturerA = null,
+    ): LengthAwarePaginator {
         try {
             if (! in_array($filtre, [self::FILTRE_ALL, self::FILTRE_A_REGULARISER, self::FILTRE_ANOMALIES], true)) {
                 throw new InvalidArgumentException("Filtre inconnu : {$filtre}");
             }
 
+            if ($facturerA !== null && ! in_array($facturerA, [self::FACTURER_A_ADV, self::FACTURER_A_COSMA], true)) {
+                throw new InvalidArgumentException("Facturer à inconnu : {$facturerA}");
+            }
+
             // 1) une ligne par (periode, parkod) avec ADV / COSMA côte à côte
-            $pivot = DB::table('stock_mensuel as sm')
+            $pivot = DB::table('stock_mensuels as sm')
                 ->join('periodes as p', function ($j) {
                     $j->on('p.periode', '=', 'sm.periode')->where('p.statut', 'OUVERTE');
                 })
@@ -80,11 +94,20 @@ class Regularisation
                 GREATEST(-c.qte_total, 0) AS qte_residuelle
             ");
 
-            // 4) filtre + tri + pagination
+            // 4) infos article + filtres + tri + pagination
             return DB::query()
                 ->fromSub($final, 'r')
+                ->leftJoin('articles as a', 'a.parkod', '=', 'r.parkod')
+                ->leftJoin('marques as m', 'm.id', '=', 'a.marque_id')
+                ->select([
+                    'r.*',
+                    'a.ean',
+                    'a.description',
+                    'm.nom as marque',
+                ])
                 ->when($filtre === self::FILTRE_A_REGULARISER, fn ($q) => $q->where('r.qte_a_facturer', '>', 0))
                 ->when($filtre === self::FILTRE_ANOMALIES,     fn ($q) => $q->where('r.qte_residuelle', '>', 0))
+                ->when($facturerA,                             fn ($q) => $q->where('r.facturer_a', $facturerA))
                 ->orderBy('r.periode')
                 ->orderBy('r.cas')
                 ->orderBy('r.parkod')
