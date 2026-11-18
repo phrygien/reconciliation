@@ -23,8 +23,7 @@ return new class extends Migration
             $table->decimal('valeur', 14, 4);           // qte * pamp = montant à facturer
             $table->string('cas', 20);                  // COMPENSABLE_TOTAL / PARTIEL
             $table->string('statut', 20)->default('A_FACTURER'); // A_FACTURER, FACTURE, ANNULE
-            $table->string('numero_facture')->nullable();
-            $table->date('date_facture')->nullable();
+            $table->string('facture_id')->nullable();
             $table->json('avant');                      // snapshot des 2 ouvertures avant
             $table->json('apres');                      // snapshot après
             $table->foreignId('user_id')->nullable();
