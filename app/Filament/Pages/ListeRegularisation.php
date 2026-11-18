@@ -7,7 +7,12 @@ use App\Models\Marque;
 use App\Services\Regularisation;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\View;
+use Filament\Schemas\Components\Wizard\Step;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -29,6 +34,7 @@ use OpenSpout\Writer\XLSX\Entity\SheetView;
 use OpenSpout\Writer\XLSX\Options;
 use OpenSpout\Writer\XLSX\Writer;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 use UnitEnum;
 
 class ListeRegularisation extends Page implements HasTable
@@ -48,6 +54,9 @@ class ListeRegularisation extends Page implements HasTable
     protected static ?string $slug = 'regularisation';
 
     protected string $view = 'filament.pages.liste-regularisation';
+
+    /** Nombre maximum de lignes affichées dans l'aperçu du assistant. */
+    protected const APERCU_LIMITE = 200;
 
     public function getMaxContentWidth(): Width
     {
@@ -121,6 +130,119 @@ class ListeRegularisation extends Page implements HasTable
         return app(Regularisation::class)->listeRegularisation(
             ...['page' => $page, 'perPage' => $perPage, ...$this->filtresCourants()]
         );
+    }
+
+    /**
+     * Aperçu de ce que la régularisation va traiter (COMPENSABLE_TOTAL, filtres actifs).
+     * Les totaux portent sur toutes les lignes, la liste est limitée à APERCU_LIMITE.
+     *
+     * @return array{nb: int, qte: float, total: float, lignes: array<int, array<string, mixed>>}
+     */
+    protected function apercuRegularisation(): array
+    {
+        $f = $this->filtresCourants();
+
+        $rows = app(Regularisation::class)->exportRegularisation(
+            filtre: Regularisation::FILTRE_A_REGULARISER,
+            periode: $f['periode'],
+            facturerA: $f['facturerA'],
+            marqueIds: $f['marqueIds'],
+        );
+
+        $nb     = 0;
+        $qte    = 0.0;
+        $total  = 0.0;
+        $lignes = [];
+
+        foreach ($rows as $row) {
+            if ($row->cas !== 'COMPENSABLE_TOTAL') {
+                continue;
+            }
+
+            $nb++;
+            $qte   += (float) $row->qte_a_facturer;
+            $total += (float) $row->valeur_a_facturer;
+
+            if ($nb <= self::APERCU_LIMITE) {
+                $lignes[] = (array) $row;
+            }
+        }
+
+        return ['nb' => $nb, 'qte' => $qte, 'total' => round($total, 2), 'lignes' => $lignes];
+    }
+
+    /**
+     * Libellé lisible des filtres actifs (étape 1 de l'assistant).
+     *
+     * @return array<string, string>
+     */
+    protected function libellesFiltres(): array
+    {
+        $f = $this->filtresCourants();
+
+        $marques = $f['marqueIds'] === []
+            ? 'Toutes les marques'
+            : Marque::query()->whereIn('id', $f['marqueIds'])->orderBy('nom')->pluck('nom')->implode(', ');
+
+        return [
+            'Période'    => $f['periode'] ?? 'Toutes les périodes ouvertes',
+            'Facturer à' => $f['facturerA'] ?? 'Tous',
+            'Marques'    => $marques,
+        ];
+    }
+
+    /**
+     * Régularise les « Compensable total » correspondant aux filtres actifs.
+     * Le filtre « Affichage » est ignoré : le service ne traite que les COMPENSABLE_TOTAL.
+     */
+    public function regulariserStocks(): void
+    {
+        $filtres = $this->filtresCourants();
+
+        try {
+            $bilan = app(Regularisation::class)->regulariserLeStocks(
+                periode: $filtres['periode'],
+                facturerA: $filtres['facturerA'],
+                marqueIds: $filtres['marqueIds'],
+                user_id: auth()->id(),
+            );
+        } catch (Throwable $e) {
+            report($e);
+
+            Notification::make()
+                ->title('Échec de la régularisation')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
+
+        if ($bilan['regularises'] === 0) {
+            Notification::make()
+                ->title('Aucune ligne régularisée')
+                ->body('Aucun « Compensable total » à traiter avec ces filtres (' . $bilan['ignores'] . ' ignorée(s)).')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $nbFactures = count($bilan['factures']);
+        $total      = number_format($bilan['total_facture'], 2, ',', ' ');
+
+        $notification = Notification::make()
+            ->title('Régularisation effectuée')
+            ->body(
+                "{$bilan['regularises']} ligne(s) régularisée(s), {$nbFactures} facture(s) générée(s), "
+                . "total {$total}. {$bilan['ignores']} ignorée(s)."
+                . (count($bilan['erreurs']) > 0 ? ' ' . count($bilan['erreurs']) . ' erreur(s), voir les logs.' : '')
+            );
+
+        count($bilan['erreurs']) > 0 ? $notification->warning() : $notification->success();
+
+        $notification->persistent()->send();
     }
 
     /**
@@ -280,6 +402,81 @@ class ListeRegularisation extends Page implements HasTable
     {
         return $table
             ->headerActions([
+                Action::make('regulariser')
+                    ->label('Régulariser les stocks')
+                    ->icon(Heroicon::OutlinedCheckBadge)
+                    ->color('warning')
+                    ->modalHeading('Régulariser les stocks')
+                    ->modalWidth(Width::SevenExtraLarge)
+                    ->modalSubmitActionLabel('Régulariser')
+                    ->steps([
+                        Step::make('Filtres')
+                            ->description('Périmètre de la régularisation')
+                            ->icon(Heroicon::OutlinedFunnel)
+                            ->schema(function (): array {
+                                $lignes = [];
+
+                                foreach ($this->libellesFiltres() as $label => $valeur) {
+                                    $lignes[] = Text::make("{$label} : {$valeur}")->weight('semibold');
+                                }
+
+                                $lignes[] = Text::make(
+                                    'Seules les lignes « Compensable total » sont traitées. '
+                                    . 'Le filtre « Affichage » est ignoré.'
+                                )->color('gray');
+
+                                return $lignes;
+                            }),
+
+                        Step::make('Aperçu')
+                            ->description('Lignes à régulariser')
+                            ->icon(Heroicon::OutlinedEye)
+                            ->schema(function (): array {
+                                $a = $this->apercuRegularisation();
+
+                                if ($a['nb'] === 0) {
+                                    return [
+                                        Text::make('Aucune ligne « Compensable total » à régulariser avec ces filtres.')
+                                            ->color('danger'),
+                                    ];
+                                }
+
+                                return [
+                                    Text::make(
+                                        "{$a['nb']} ligne(s) · quantité " . number_format($a['qte'], 0, ',', ' ')
+                                        . ' · montant à facturer ' . number_format($a['total'], 2, ',', ' ')
+                                    )->weight('semibold'),
+
+                                    View::make('filament.pages.partials.apercu-regularisation')
+                                        ->viewData([
+                                            'lignes' => $a['lignes'],
+                                            'nb'     => $a['nb'],
+                                            'limite' => self::APERCU_LIMITE,
+                                        ]),
+
+                                    Text::make('Les stocks d\'ouverture ADV / COSMA seront modifiés et les factures générées.')
+                                        ->color('gray'),
+                                ];
+                            }),
+
+                        Step::make('Confirmation')
+                            ->description('Validation finale')
+                            ->icon(Heroicon::OutlinedShieldCheck)
+                            ->schema([
+                                Text::make('Cette opération ne peut pas être annulée automatiquement.')
+                                    ->color('danger')
+                                    ->weight('semibold'),
+
+                                Checkbox::make('confirmation')
+                                    ->label('Je confirme vouloir régulariser ces stocks')
+                                    ->accepted()
+                                    ->validationMessages([
+                                        'accepted' => 'Vous devez confirmer pour continuer.',
+                                    ]),
+                            ]),
+                    ])
+                    ->action(fn () => $this->regulariserStocks()),
+
                 Action::make('export')
                     ->label('Exporter Excel')
                     ->icon(Heroicon::OutlinedArrowDownTray)

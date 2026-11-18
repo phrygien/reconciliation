@@ -34,7 +34,7 @@ class Regularisation
 
     public function __construct(FileProcessor $process)
     {
-        $processor = $process;
+        $this->processor = $process;
     }
 
     /**
@@ -193,12 +193,12 @@ class Regularisation
      *
      * @param  string|null $periode    null = toutes les périodes ouvertes
      * @param  string|null $facturerA  null = tous, sinon 'ADV' ou 'COSMA'
-     * @param  int|null    $marqueId   null = toutes les marques
+     * @param  int[]       $marqueIds  [] = toutes les marques
      */
     public function regulariserLeStocks(
         ?string $periode = null,
         ?string $facturerA = null,
-        ?int $marqueId = null,
+        array $marqueIds = [],
         ?int $user_id = null,
     ): array {
         try {
@@ -206,13 +206,13 @@ class Regularisation
 
             // mêmes filtres que la liste, limités aux COMPENSABLE_TOTAL
             // (get() et non cursor() : on modifie stock_mensuels pendant la boucle)
-            $candidats = $this->requete(self::FILTRE_A_REGULARISER, $periode, $facturerA, $marqueId)
+            $candidats = $this->requete(self::FILTRE_A_REGULARISER, $periode, $facturerA, $marqueIds)
                 ->where('r.cas', self::CAS_TOTAL)
                 ->get();
 
             $lot   = now()->format('YmdHis'); // un lot = un jeu de factures
             $bilan = [
-                'filtres'       => compact('periode', 'facturerA', 'marqueId'),
+                'filtres'       => compact('periode', 'facturerA', 'marqueIds'),
                 'regularises'   => 0,
                 'ignores'       => 0,
                 'total_facture' => 0.0,
@@ -231,16 +231,14 @@ class Regularisation
                         continue;
                     }
 
+                    $bilan['regularises']++;
                     $bilan['total_facture'] += (float) $reg->valeur;
-                    $bilan['factures'][$reg->numero_facture] =
-                        ($bilan['factures'][$reg->numero_facture] ?? 0) + (float) $reg->valeur;
                 } catch (Exception $e) {
                     // une ligne en erreur ne bloque pas les autres
                     Log::error("Régularisation {$c->periode} / {$c->parkod} : " . $e->getMessage());
                     $bilan['erreurs'][] = "{$c->periode} / {$c->parkod} : " . $e->getMessage();
                 }
             }
-            $bilan['total_facture'] = round($bilan['total_facture'], 2);
 
             // recalculation de la facture dans la base
             $this->recalculerFacturesDuLot($lot);
@@ -370,13 +368,13 @@ class Regularisation
             foreach ([$deb, $cre] as $s) {
                 $hist   = $s->historique_ouverture ?? [];
                 $hist[] = [
-                    'date'              => now()->toDateTimeString(),
-                    'qte_ouverture_avant'         => $avant[$s->code_stock]['qte_ouverture'],
-                    'qte_ouverture_apres'         => $apres[$s->code_stock]['qte_ouverture'],
-                    'val_ouverture_avant'         => $avant[$s->code_stock]['val_ouverture'],
-                    'val_ouverture_apres'         => $apres[$s->code_stock]['val_ouverture'],
-                    'regularisation_id' => $reg->id,
-                    'user_id'           => $user_id,
+                    'date'                => now()->toDateTimeString(),
+                    'qte_ouverture_avant' => $avant[$s->code_stock]['qte_ouverture'],
+                    'qte_ouverture_apres' => $apres[$s->code_stock]['qte_ouverture'],
+                    'val_ouverture_avant' => $avant[$s->code_stock]['val_ouverture'],
+                    'val_ouverture_apres' => $apres[$s->code_stock]['val_ouverture'],
+                    'regularisation_id'   => $reg->id,
+                    'user_id'             => $user_id,
                 ];
 
                 $s->historique_ouverture = $hist;
