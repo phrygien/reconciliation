@@ -33,6 +33,9 @@ return new class extends Migration
             $table->decimal('val_cloture', 14, 4)->default(0);
             $table->decimal('pamp_cloture', 12, 4)->default(0)->comment('PAMP à la clôture');
 
+            $table->json('historique_ouverture')->default(null);                      // snapshot des 2 ouvertures avant
+            $table->integer('regularisation_id');                      // snapshot après
+
             $table->timestamps();
 
             $table->foreign('code_stock')->references('code_stock')->on('societes');

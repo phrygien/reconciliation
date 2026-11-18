@@ -22,6 +22,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'qte_cloture',
     'val_cloture',
     'pamp_cloture',
+    'historique_ouverture',
+    'regularisation_id',
 ])]
 class StockMensuel extends Model
 {
