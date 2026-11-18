@@ -307,7 +307,7 @@ class Regularisation
                 return null;
             }
 
-            // valorisation au PAMP d'ouverture du stock qui cède
+            // valorisation au PAMP d'ouverture du stock qui cède (recalculation)
             $pamp   = round($cre->val_ouverture / $cre->qte_ouverture, 4);
             $valeur = round($qte * $cre->val_ouverture / $cre->qte_ouverture, 2);
 
