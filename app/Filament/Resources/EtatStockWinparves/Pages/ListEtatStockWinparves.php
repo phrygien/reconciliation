@@ -6,11 +6,17 @@ use App\Filament\Resources\EtatStockWinparves\EtatStockWinparfResource;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Support\Enums\Width;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListEtatStockWinparves extends ListRecords
 {
     protected static string $resource = EtatStockWinparfResource::class;
+
+    public function getMaxContentWidth(): Width|string|null
+    {
+        return Width::Full;
+    }
 
     protected function getHeaderActions(): array
     {

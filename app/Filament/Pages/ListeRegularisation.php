@@ -2,8 +2,11 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\Articles\ArticleResource;
+use App\Models\Marque;
 use App\Services\Regularisation;
 use BackedEnum;
+use Filament\Actions\Action;
 use Filament\Pages\Page;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
@@ -14,6 +17,19 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use OpenSpout\Common\Entity\Cell;
+use OpenSpout\Common\Entity\Row;
+use OpenSpout\Common\Entity\Style\Border;
+use OpenSpout\Common\Entity\Style\BorderPart;
+use OpenSpout\Common\Entity\Style\CellAlignment;
+use OpenSpout\Common\Entity\Style\CellVerticalAlignment;
+use OpenSpout\Common\Entity\Style\Color;
+use OpenSpout\Common\Entity\Style\Style;
+use OpenSpout\Writer\XLSX\Entity\SheetView;
+use OpenSpout\Writer\XLSX\Options;
+use OpenSpout\Writer\XLSX\Writer;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use UnitEnum;
 
 class ListeRegularisation extends Page implements HasTable
 {
@@ -21,7 +37,11 @@ class ListeRegularisation extends Page implements HasTable
 
     protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedScale;
 
-    protected static ?string $navigationLabel = 'Régularisation';
+    protected static string | UnitEnum | null $navigationGroup = 'Régularisation';
+
+    protected static ?int $navigationSort = 8;
+
+    protected static ?string $navigationLabel = 'À régulariser';
 
     protected static ?string $title = 'Régularisation des stocks';
 
@@ -35,26 +55,241 @@ class ListeRegularisation extends Page implements HasTable
     }
 
     /**
-     * Interroge le service avec l'état courant des filtres (lu depuis Livewire).
+     * Colonnes de l'export : clé => [libellé, largeur, format numérique|null, gras ?]
+     * Format null = texte.
      */
-    protected function fetchRegularisation(int $page, int $perPage): LengthAwarePaginator
+    protected const EXPORT_COLUMNS = [
+        'periode'           => ['Période',         12, null,                              false],
+        'parkod'            => ['Article',         16, null,                              false],
+        'ean'               => ['EAN',             18, null,                              false],
+        'marque'            => ['Marque',          20, null,                              false],
+        'description'       => ['Description',     45, null,                              false],
+        'qte_adv'           => ['Qté ADV',         12, '#,##0.00;[Red]-#,##0.00',         false],
+        'qte_cosma'         => ['Qté COSMA',       12, '#,##0.00;[Red]-#,##0.00',         false],
+        'qte_total'         => ['Qté totale',      12, '#,##0.00;[Red]-#,##0.00',         false],
+        'pamp_adv'          => ['PAMP ADV',        12, '#,##0.0000',                      false],
+        'pamp_cosma'        => ['PAMP COSMA',      12, '#,##0.0000',                      false],
+        'cas'               => ['Cas',             22, null,                              false],
+        'facturer_a'        => ['Facturer à',      12, null,                              false],
+        'facture_par'       => ['Facturé par',     12, null,                              false],
+        'qte_a_facturer'    => ['Qté à facturer',  14, '#,##0.00',                        false],
+        'pamp'              => ['PAMP retenu',     12, '#,##0.0000',                      false],
+        'valeur_a_facturer' => ['Montant facturé', 16, '#,##0.00',                        true],
+        'qte_residuelle'    => ['Qté résiduelle',  14, '#,##0.00;[Red]-#,##0.00',         false],
+    ];
+
+    protected const CAS_LABELS = [
+        'COMPENSABLE_TOTAL'   => 'Compensable total',
+        'COMPENSABLE_PARTIEL' => 'Compensable partiel',
+        'NON_COMPENSABLE'     => 'Non compensable',
+    ];
+
+    /**
+     * Couleurs de l'export : [fond, texte] par cas.
+     */
+    protected const CAS_COLORS = [
+        'COMPENSABLE_TOTAL'   => ['D1FAE5', '065F46'],
+        'COMPENSABLE_PARTIEL' => ['FEF3C7', '92400E'],
+        'NON_COMPENSABLE'     => ['FEE2E2', '991B1B'],
+    ];
+
+    /**
+     * État courant des filtres, normalisé pour le service.
+     *
+     * @return array{filtre: string, periode: ?string, facturerA: ?string, marqueId: ?int}
+     */
+    protected function filtresCourants(): array
     {
         $filtre    = data_get($this->tableFilters, 'filtre.value');
         $periode   = data_get($this->tableFilters, 'periode.value');
         $facturerA = data_get($this->tableFilters, 'facturer_a.value');
+        $marqueId  = data_get($this->tableFilters, 'marque_id.value');
 
+        return [
+            'filtre'    => $filtre ?: Regularisation::FILTRE_ALL,
+            'periode'   => $periode ?: null,
+            'facturerA' => $facturerA ?: null,
+            'marqueId'  => $marqueId ? (int) $marqueId : null,
+        ];
+    }
+
+    /**
+     * Interroge le service avec l'état courant des filtres (lu depuis Livewire).
+     */
+    protected function fetchRegularisation(int $page, int $perPage): LengthAwarePaginator
+    {
         return app(Regularisation::class)->listeRegularisation(
-            page: $page,
-            perPage: $perPage,
-            filtre: $filtre ?: Regularisation::FILTRE_ALL,
-            periode: $periode ?: null,
-            facturerA: $facturerA ?: null,
+            ...['page' => $page, 'perPage' => $perPage, ...$this->filtresCourants()]
         );
+    }
+
+    /**
+     * Bordure fine grise sur les 4 côtés.
+     */
+    protected function xlsxBorder(string $color = 'D1D5DB'): Border
+    {
+        $part = fn (string $name): BorderPart => new BorderPart(
+            $name,
+            Color::rgb(
+                hexdec(substr($color, 0, 2)),
+                hexdec(substr($color, 2, 2)),
+                hexdec(substr($color, 4, 2)),
+            ),
+            Border::WIDTH_THIN,
+            Border::STYLE_SOLID,
+        );
+
+        return new Border(
+            $part(Border::TOP),
+            $part(Border::RIGHT),
+            $part(Border::BOTTOM),
+            $part(Border::LEFT),
+        );
+    }
+
+    protected function xlsxColor(string $hex): string
+    {
+        return Color::rgb(
+            hexdec(substr($hex, 0, 2)),
+            hexdec(substr($hex, 2, 2)),
+            hexdec(substr($hex, 4, 2)),
+        );
+    }
+
+    /**
+     * Export Excel (.xlsx) de toutes les lignes correspondant aux filtres actifs.
+     */
+    public function exportExcel(): StreamedResponse
+    {
+        $filtres  = $this->filtresCourants();
+        $fileName = 'regularisation-' . now()->format('Y-m-d_His') . '.xlsx';
+
+        return response()->streamDownload(function () use ($filtres): void {
+            set_time_limit(0);
+
+            // Largeurs de colonnes
+            $options = new Options();
+            $index   = 1;
+
+            foreach (self::EXPORT_COLUMNS as [, $width]) {
+                $options->setColumnWidth($width, $index++);
+            }
+
+            $writer = new Writer($options);
+            $writer->openToFile('php://output');
+
+            $border = $this->xlsxBorder();
+
+            // Figer la ligne d'en-tête + nom de la feuille
+            $sheetView = new SheetView();
+            $sheetView->setFreezeRow(2);
+            $sheet = $writer->getCurrentSheet();
+            $sheet->setSheetView($sheetView);
+            $sheet->setName('Régularisation');
+
+            // Style d'en-tête
+            $headerStyle = (new Style())
+                ->setFontBold()
+                ->setFontSize(11)
+                ->setFontColor(Color::WHITE)
+                ->setBackgroundColor($this->xlsxColor('1F2937'))
+                ->setCellAlignment(CellAlignment::CENTER)
+                ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
+                ->setShouldWrapText(false)
+                ->setBorder($border);
+
+            $writer->addRow(new Row(
+                array_map(
+                    fn (array $c): Cell => Cell::fromValue($c[0], $headerStyle),
+                    array_values(self::EXPORT_COLUMNS),
+                ),
+            ));
+
+            // Styles pré-construits par colonne (réutilisés pour chaque ligne)
+            $columnStyles = [];
+
+            foreach (self::EXPORT_COLUMNS as $key => [, , $format, $bold]) {
+                $style = (new Style())
+                    ->setFontSize(10)
+                    ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
+                    ->setBorder($border);
+
+                if ($format !== null) {
+                    $style->setFormat($format)->setCellAlignment(CellAlignment::RIGHT);
+                }
+
+                if ($bold) {
+                    $style->setFontBold();
+                }
+
+                $columnStyles[$key] = $style;
+            }
+
+            // Styles de la colonne « Cas » selon la valeur
+            $casStyles = [];
+
+            foreach (self::CAS_COLORS as $cas => [$bg, $fg]) {
+                $casStyles[$cas] = (new Style())
+                    ->setFontSize(10)
+                    ->setFontBold()
+                    ->setFontColor($this->xlsxColor($fg))
+                    ->setBackgroundColor($this->xlsxColor($bg))
+                    ->setCellAlignment(CellAlignment::CENTER)
+                    ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
+                    ->setBorder($border);
+            }
+
+            // Style de la colonne « Facturer à » / « Facturé par »
+            $centerStyle = (new Style())
+                ->setFontSize(10)
+                ->setCellAlignment(CellAlignment::CENTER)
+                ->setCellVerticalAlignment(CellVerticalAlignment::CENTER)
+                ->setBorder($border);
+
+            $rows = app(Regularisation::class)->exportRegularisation(...$filtres);
+
+            foreach ($rows as $row) {
+                $cells = [];
+
+                foreach (self::EXPORT_COLUMNS as $key => [, , $format]) {
+                    $value = $row->{$key} ?? null;
+                    $style = $columnStyles[$key];
+
+                    if ($key === 'cas' && $value !== null) {
+                        $style = $casStyles[$value] ?? $style;
+                        $value = self::CAS_LABELS[$value] ?? $value;
+                    }
+
+                    if (in_array($key, ['facturer_a', 'facture_par'], true)) {
+                        $style = $centerStyle;
+                    }
+
+                    if ($format !== null && $value !== null) {
+                        $value = (float) $value;
+                    }
+
+                    $cells[] = Cell::fromValue($value, $style);
+                }
+
+                $writer->addRow(new Row($cells));
+            }
+
+            $writer->close();
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     public function table(Table $table): Table
     {
         return $table
+            ->headerActions([
+                Action::make('export')
+                    ->label('Exporter Excel')
+                    ->icon(Heroicon::OutlinedArrowDownTray)
+                    ->color('success')
+                    ->action(fn () => $this->exportExcel()),
+            ])
             ->records(function (int $page, int $recordsPerPage): LengthAwarePaginator {
                 $paginator = $this->fetchRegularisation($page, $recordsPerPage);
 
@@ -76,6 +311,11 @@ class ListeRegularisation extends Page implements HasTable
 
                 return $paginator;
             })
+            ->recordUrl(
+                fn (array $record): ?string => ! empty($record['article_id'])
+                    ? ArticleResource::getUrl('view', ['record' => $record['article_id']])
+                    : null
+            )
             ->columns([
                 TextColumn::make('periode')
                     ->label('Période'),
@@ -129,12 +369,7 @@ class ListeRegularisation extends Page implements HasTable
                 TextColumn::make('cas')
                     ->label('Cas')
                     ->badge()
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'COMPENSABLE_TOTAL'   => 'Compensable total',
-                        'COMPENSABLE_PARTIEL' => 'Compensable partiel',
-                        'NON_COMPENSABLE'     => 'Non compensable',
-                        default               => $state,
-                    })
+                    ->formatStateUsing(fn ($state) => self::CAS_LABELS[$state] ?? $state)
                     ->color(fn ($state) => match ($state) {
                         'COMPENSABLE_TOTAL'   => 'success',
                         'COMPENSABLE_PARTIEL' => 'warning',
@@ -206,8 +441,17 @@ class ListeRegularisation extends Page implements HasTable
                         Regularisation::FACTURER_A_ADV   => 'ADV',
                         Regularisation::FACTURER_A_COSMA => 'COSMA',
                     ]),
+
+                SelectFilter::make('marque_id')
+                    ->label('Marque')
+                    ->placeholder('Toutes les marques')
+                    ->searchable()
+                    ->options(fn () => Marque::query()
+                        ->orderBy('nom')
+                        ->pluck('nom', 'id')
+                        ->all()),
             ])
-            ->filtersFormColumns(3)
+            ->filtersFormColumns(4)
             ->deferFilters(false)
             ->persistFiltersInSession()
             ->paginated([25, 50, 100])

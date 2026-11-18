@@ -196,7 +196,7 @@ class FileProcessor
     }
 
     // recalculation du stock mensuel
-    protected function recalculerStockMensuel(string $parkod, string $periode, string $societe): void
+    public function recalculerStockMensuel(string $parkod, string $periode, string $societe): void
     {
         Log::channel('stderr')->info("recalculer Stock Mensuel : " . $parkod . "_" . $periode ."_". $societe);
 

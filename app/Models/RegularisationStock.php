@@ -20,8 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'valeur',               // qte * pamp = montant à facturer
     'cas',                  // COMPENSABLE_TOTAL / COMPENSABLE_PARTIEL
     'statut',               // A_FACTURER, FACTURE, ANNULE
-    'numero_facture',
-    'date_facture',
+    'facture_id',           // relier au facture
     'avant',                // snapshot des 2 ouvertures avant
     'apres',                // snapshot après
     'user_id',
@@ -42,7 +41,7 @@ class RegularisationStock extends Model
             'qte'          => 'integer',
             'pamp'         => 'decimal:4',
             'valeur'       => 'decimal:4',
-            'date_facture' => 'date',
+            'facture_id'       => 'int',
             'avant'        => 'array',
             'apres'        => 'array',
         ];
