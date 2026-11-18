@@ -114,6 +114,18 @@ class ListeRegularisation extends Page implements HasTable
                     ->alignEnd()
                     ->color(fn ($state) => $state < 0 ? 'danger' : null),
 
+                TextColumn::make('pamp_adv')
+                    ->label('PAMP ADV')
+                    ->numeric(decimalPlaces: 4)
+                    ->alignEnd()
+                    ->placeholder('—'),
+
+                TextColumn::make('pamp_cosma')
+                    ->label('PAMP COSMA')
+                    ->numeric(decimalPlaces: 4)
+                    ->alignEnd()
+                    ->placeholder('—'),
+
                 TextColumn::make('cas')
                     ->label('Cas')
                     ->badge()
@@ -149,15 +161,16 @@ class ListeRegularisation extends Page implements HasTable
                     ->placeholder('—'),
 
                 TextColumn::make('pamp')
-                    ->label('PAMP')
+                    ->label('PAMP retenu')
                     ->numeric(decimalPlaces: 4)
                     ->alignEnd()
                     ->placeholder('—'),
 
-                TextColumn::make('montant_facture')
+                TextColumn::make('valeur_a_facturer')
                     ->label('Montant facturé')
                     ->numeric(decimalPlaces: 2)
                     ->alignEnd()
+                    ->weight('bold')
                     ->placeholder('—'),
 
                 TextColumn::make('qte_residuelle')
