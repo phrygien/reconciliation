@@ -81,7 +81,7 @@ return [
         // Disks that don't require authentication for streaming access
         // Use with caution - files on these disks can be accessed without login
         // Note: Signed URLs are still required, this just skips the auth check
-        'public_access_disks' => [],
+        'public_access_disks' => ['local'],
     ],
 
     /*
