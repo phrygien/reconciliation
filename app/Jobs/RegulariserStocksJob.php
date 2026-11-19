@@ -17,13 +17,15 @@ class RegulariserStocksJob implements ShouldQueue
     public int $tries   = 1;
 
     /**
-     * @param int[] $marqueIds
+     * @param int[]    $marqueIds
+     * @param string[] $selection  clés « periode|parkod » des lignes cochées ([] = tout le périmètre filtré)
      */
     public function __construct(
         public ?string $periode,
         public ?string $facturerA,
         public array $marqueIds,
         public ?int $userId,
+        public array $selection = [],
     ) {}
 
     public function handle(Regularisation $service): void
@@ -35,6 +37,7 @@ class RegulariserStocksJob implements ShouldQueue
             facturerA: $this->facturerA,
             marqueIds: $this->marqueIds,
             user_id: $this->userId,
+            selection: $this->selection,
         );
 
         $user = $this->userId ? User::find($this->userId) : null;
@@ -50,9 +53,15 @@ class RegulariserStocksJob implements ShouldQueue
             ->map(fn (int $n, string $raison) => $n . ' ' . (Regularisation::RAISONS_LABELS[$raison] ?? $raison))
             ->implode(', ');
 
+        // sélection manuelle : lignes cochées qui n'étaient pas « Compensable total »
+        $horsPerimetre = $bilan['hors_perimetre'] > 0
+            ? " {$bilan['hors_perimetre']} ligne(s) sélectionnée(s) non compensable(s) totalement, non traitée(s)."
+            : '';
+
         if ($bilan['regularises'] === 0) {
             $body = $bilan['candidats'] === 0
-                ? 'Aucune ligne « Compensable total » trouvée avec ces filtres.'
+                ? 'Aucune ligne « Compensable total » trouvée'
+                . ($bilan['selection'] > 0 ? ' dans la sélection.' : ' avec ces filtres.')
                 : "{$bilan['candidats']} ligne(s) trouvée(s) mais aucune traitée"
                 . ($detailRaisons !== '' ? " ({$detailRaisons})" : '')
                 . ($nbErreurs > 0 ? " — {$nbErreurs} erreur(s), voir les logs" : '')
@@ -60,7 +69,7 @@ class RegulariserStocksJob implements ShouldQueue
 
             Notification::make()
                 ->title('Aucune ligne régularisée')
-                ->body($body)
+                ->body($body . $horsPerimetre)
                 ->warning()
                 ->sendToDatabase($user);
 
@@ -76,6 +85,7 @@ class RegulariserStocksJob implements ShouldQueue
                 . ". {$bilan['ignores']} ignorée(s)"
                 . ($detailRaisons !== '' ? " ({$detailRaisons})" : '')
                 . '.'
+                . $horsPerimetre
                 . ($nbErreurs > 0 ? " {$nbErreurs} erreur(s), voir les logs." : '')
             );
 

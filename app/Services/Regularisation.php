@@ -57,6 +57,15 @@ class Regularisation
     }
 
     /**
+     * Clé d'une ligne de la liste : « periode|parkod ».
+     * Même format que la clé des enregistrements de la table Filament.
+     */
+    public static function cleLigne(string $periode, string $parkod): string
+    {
+        return $periode . '|' . $parkod;
+    }
+
+    /**
      * Liste paginée des articles à régulariser et des anomalies (période OUVERTE).
      *
      * @param  string|null $periode    null = toutes les périodes ouvertes
@@ -217,12 +226,15 @@ class Regularisation
      * @param  string|null $periode    null = toutes les périodes ouvertes
      * @param  string|null $facturerA  null = tous, sinon 'ADV' ou 'COSMA'
      * @param  int[]       $marqueIds  [] = toutes les marques
+     * @param  string[]    $selection  [] = toutes les lignes ; sinon clés « periode|parkod »
+     *                                 (voir cleLigne) : seules ces lignes sont traitées
      */
     public function regulariserLeStocks(
         ?string $periode = null,
         ?string $facturerA = null,
         array $marqueIds = [],
         ?int $user_id = null,
+        array $selection = [],
     ): array {
         try {
             // mêmes filtres que la liste, limités aux COMPENSABLE_TOTAL
@@ -231,10 +243,22 @@ class Regularisation
                 ->where('r.cas', self::CAS_TOTAL)
                 ->get();
 
+            // sélection manuelle : on ne garde que les lignes cochées
+            // (les lignes cochées non compensables / hors filtres ne sont pas candidates)
+            if ($selection !== []) {
+                $cles = array_flip($selection);
+
+                $candidats = $candidats
+                    ->filter(fn ($c) => isset($cles[self::cleLigne($c->periode, $c->parkod)]))
+                    ->values();
+            }
+
             $lot   = now()->format('YmdHis'); // un lot = un jeu de factures
             $bilan = [
                 'filtres'       => compact('periode', 'facturerA', 'marqueIds'),
+                'selection'     => count($selection),
                 'candidats'     => $candidats->count(),
+                'hors_perimetre' => $selection !== [] ? max(count($selection) - $candidats->count(), 0) : 0,
                 'regularises'   => 0,
                 'ignores'       => 0,
                 'raisons'       => [],   // raison => nombre de lignes ignorées
@@ -243,7 +267,9 @@ class Regularisation
                 'erreurs'       => [],
             ];
 
-            Log::info("Régularisation : {$bilan['candidats']} ligne(s) COMPENSABLE_TOTAL à traiter", $bilan['filtres']);
+            Log::info("Régularisation : {$bilan['candidats']} ligne(s) COMPENSABLE_TOTAL à traiter", $bilan['filtres'] + [
+                    'selection' => $bilan['selection'],
+                ]);
 
             foreach ($candidats as $c) {
                 try {
