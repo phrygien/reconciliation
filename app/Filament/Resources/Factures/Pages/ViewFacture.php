@@ -21,7 +21,7 @@ class ViewFacture extends ViewRecord
     {
         return [
             FacturePdfActions::apercu(),
-            FacturePdfActions::telecharger(),
+            //FacturePdfActions::telecharger(),
             FacturePdfActions::generer(),
             //EditAction::make(),
         ];

@@ -7,8 +7,10 @@ use AmjadIqbal\FilamentRecordPdf\Actions\PreviewPdfAction;
 use AmjadIqbal\FilamentRecordPdf\Actions\SavePdfAction;
 use App\Models\Facture;
 use App\Models\RegularisationStock;
+use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class FacturePdfActions
 {
@@ -43,6 +45,7 @@ class FacturePdfActions
     {
         return PreviewPdfAction::make()
             ->label('Aperçu PDF')
+            ->icon(null)
             ->pdfView(self::VUE)
             ->pdfData(fn (Facture $record) => self::data($record))
             ->pdfFilename(fn (Facture $record) => "Facture {$record->numero}");
@@ -52,6 +55,7 @@ class FacturePdfActions
     {
         return DownloadPdfAction::make()
             ->label('Télécharger')
+            ->icon(null)
             ->pdfView(self::VUE)
             ->pdfData(fn (Facture $record) => self::data($record))
             ->pdfFilename(fn (Facture $record) => "Facture {$record->numero}");
@@ -64,10 +68,12 @@ class FacturePdfActions
     public static function generer(): SavePdfAction
     {
         return SavePdfAction::make()
-            ->label('Générer le PDF')
+            ->label('Facturer')
+            ->icon(null)
             ->color('success')
             ->requiresConfirmation()
-            ->modalHeading('Générer le PDF de la facture')
+            ->modalHeading('Facturer')
+            ->modalSubmitActionLabel('Facturer')
             ->modalDescription(fn (Facture $record) => $record->statut === Facture::STATUT_BROUILLON
                 ? 'La facture sera émise : statut « Émise », date du jour, lignes passées à « Facturé ».'
                 : 'Le PDF existant sera remplacé.')
@@ -93,10 +99,26 @@ class FacturePdfActions
                 });
 
                 Notification::make()
-                    ->title('Facture générée')
-                    ->body("PDF enregistré : {$path}")
+                    ->title('Facture émise')
+                    ->body('Vous pouvez maintenant la télécharger.')
                     ->success()
                     ->send();
             });
+    }
+
+    /**
+     * Télécharge le PDF déjà généré par « Facturer » (visible seulement s'il existe).
+     */
+    public static function telechargerFacture(): Action
+    {
+        return Action::make('telechargerFacture')
+            ->label('Télécharger la facture')
+            ->color('primary')
+            ->visible(fn (Facture $record) => filled($record->pdf_path)
+                && Storage::disk('local')->exists($record->pdf_path))
+            ->action(fn (Facture $record) => Storage::disk('local')->download(
+                $record->pdf_path,
+                "Facture {$record->numero}.pdf",
+            ));
     }
 }
