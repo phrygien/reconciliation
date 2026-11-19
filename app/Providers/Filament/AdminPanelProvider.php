@@ -21,6 +21,7 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use MWGuerra\FileManager\FileManagerPlugin;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -77,6 +78,33 @@ class AdminPanelProvider extends PanelProvider
                 FilamentUiSwitcherPlugin::make()->withModeSwitcher(),
                 FilamentJobsMonitorPlugin::make()
                     ->enableBatchesPage(),
+                FileManagerPlugin::make()
+                    // Page File Manager (mode base de données, CRUD complet)
+                    ->fileManager()
+                    ->fileManagerPageSidebar(true)
+                    ->fileManagerSidebarRootLabel('Racine')
+                    ->fileManagerSidebarHeading('Dossiers')
+                    ->fileManagerNavigation(
+                        icon: 'heroicon-o-folder',
+                        label: 'Fichiers',
+                        sort: 1,
+                        group: 'Contenu'
+                    )
+
+                    // Page File System (mode stockage, lecture seule)
+                    ->fileSystem()
+                    ->fileSystemPageSidebar(true)
+                    ->fileSystemSidebarRootLabel('Stockage')
+                    ->fileSystemSidebarHeading('Répertoires')
+                    ->fileSystemNavigation(
+                        icon: 'heroicon-o-server-stack',
+                        label: 'Système de fichiers',
+                        sort: 2,
+                        group: 'Contenu'
+                    )
+
+                    // Désactiver la page de démo
+                    ->withoutSchemaExample(),
             ])
             ->databaseNotifications();
     }

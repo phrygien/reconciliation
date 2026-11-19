@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Factures\RelationManagers;
 
 use App\Filament\Resources\Articles\ArticleResource;
+use App\Models\Facture;
 use App\Models\RegularisationStock;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\Summarizers\Sum;
@@ -29,6 +30,22 @@ class LignesRelationManager extends RelationManager
     public function isReadOnly(): bool
     {
         return true;
+    }
+
+    /**
+     * Statut affiché : une ligne « À facturer » devient « Facturé »
+     * dès que la facture est émise.
+     */
+    private function statutAffiche(RegularisationStock $record): ?string
+    {
+        if (
+            $record->statut === RegularisationStock::STATUT_A_FACTURER
+            && $this->getOwnerRecord()->statut === Facture::STATUT_EMISE
+        ) {
+            return RegularisationStock::STATUT_FACTURE;
+        }
+
+        return $record->statut;
     }
 
     public function table(Table $table): Table
@@ -104,6 +121,7 @@ class LignesRelationManager extends RelationManager
                 TextColumn::make('statut')
                     ->label('Statut')
                     ->badge()
+                    ->getStateUsing(fn (RegularisationStock $record): ?string => $this->statutAffiche($record))
                     ->formatStateUsing(fn (?string $state) => self::STATUT_LABELS[$state] ?? $state)
                     ->color(fn (?string $state) => match ($state) {
                         RegularisationStock::STATUT_A_FACTURER => 'warning',
