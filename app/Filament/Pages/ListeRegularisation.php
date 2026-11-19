@@ -8,6 +8,7 @@ use App\Models\Marque;
 use App\Services\Regularisation;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -123,6 +124,24 @@ class ListeRegularisation extends Page implements HasTable
     }
 
     /**
+     * Clés « periode|parkod » de toutes les lignes cochées, toutes pages confondues.
+     *
+     * On lit la propriété Livewire brute : avec ->records(), les $records injectés
+     * dans une BulkAction ne contiennent que les lignes de la page affichée.
+     *
+     * @return string[]
+     */
+    protected function cleSelectionnees(): array
+    {
+        return collect($this->selectedTableRecords ?? [])
+            ->map(fn ($k): string => (string) $k)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * Interroge le service avec l'état courant des filtres (lu depuis Livewire).
      */
     protected function fetchRegularisation(int $page, int $perPage): LengthAwarePaginator
@@ -136,9 +155,10 @@ class ListeRegularisation extends Page implements HasTable
      * Aperçu de ce que la régularisation va traiter (COMPENSABLE_TOTAL, filtres actifs).
      * Les totaux portent sur toutes les lignes, la liste est limitée à APERCU_LIMITE.
      *
-     * @return array{nb: int, qte: float, total: float, lignes: array<int, array<string, mixed>>}
+     * @param  string[] $selection  [] = tout le périmètre filtré ; sinon clés « periode|parkod » cochées
+     * @return array{nb: int, qte: float, total: float, hors: int, lignes: array<int, array<string, mixed>>}
      */
-    protected function apercuRegularisation(): array
+    protected function apercuRegularisation(array $selection = []): array
     {
         $f = $this->filtresCourants();
 
@@ -149,6 +169,7 @@ class ListeRegularisation extends Page implements HasTable
             marqueIds: $f['marqueIds'],
         );
 
+        $cles   = $selection === [] ? null : array_flip($selection);
         $nb     = 0;
         $qte    = 0.0;
         $total  = 0.0;
@@ -156,6 +177,11 @@ class ListeRegularisation extends Page implements HasTable
 
         foreach ($rows as $row) {
             if ($row->cas !== 'COMPENSABLE_TOTAL') {
+                continue;
+            }
+
+            // sélection manuelle : seules les lignes cochées
+            if ($cles !== null && ! isset($cles[Regularisation::cleLigne($row->periode, $row->parkod)])) {
                 continue;
             }
 
@@ -168,7 +194,62 @@ class ListeRegularisation extends Page implements HasTable
             }
         }
 
-        return ['nb' => $nb, 'qte' => $qte, 'total' => round($total, 2), 'lignes' => $lignes];
+        return [
+            'nb'     => $nb,
+            'qte'    => $qte,
+            'total'  => round($total, 2),
+            // lignes cochées qui ne seront pas traitées (non compensables totalement, hors filtres…)
+            'hors'   => $cles !== null ? max(count($selection) - $nb, 0) : 0,
+            'lignes' => $lignes,
+        ];
+    }
+
+    /**
+     * Composants de l'aperçu (résumé + tableau + avertissements), partagés par
+     * l'assistant du header et la modale de la sélection.
+     *
+     * @param  string[] $selection
+     * @return array<int, mixed>
+     */
+    protected function schemaApercu(array $selection = []): array
+    {
+        $a = $this->apercuRegularisation($selection);
+
+        if ($a['nb'] === 0) {
+            return [
+                Text::make(
+                    $selection === []
+                        ? 'Aucune ligne « Compensable total » à régulariser avec ces filtres.'
+                        : 'Aucune ligne « Compensable total » dans la sélection.'
+                )->color('danger'),
+            ];
+        }
+
+        $composants = [
+            Text::make(
+                "{$a['nb']} ligne(s) · quantité " . number_format($a['qte'], 0, ',', ' ')
+                . ' · montant à facturer ' . number_format($a['total'], 2, ',', ' ')
+            )->weight('semibold'),
+        ];
+
+        if ($a['hors'] > 0) {
+            $composants[] = Text::make(
+                "{$a['hors']} ligne(s) sélectionnée(s) ne seront pas traitées "
+                . '(non compensables totalement ou hors des filtres actifs).'
+            )->color('warning');
+        }
+
+        $composants[] = View::make('filament.pages.partials.apercu-regularisation')
+            ->viewData([
+                'lignes' => $a['lignes'],
+                'nb'     => $a['nb'],
+                'limite' => self::APERCU_LIMITE,
+            ]);
+
+        $composants[] = Text::make('Les stocks d\'ouverture ADV / COSMA seront modifiés et les factures générées.')
+            ->color('gray');
+
+        return $composants;
     }
 
     /**
@@ -194,8 +275,10 @@ class ListeRegularisation extends Page implements HasTable
     /**
      * Lance la régularisation en arrière-plan (queue) avec les filtres actifs.
      * Le filtre « Affichage » est ignoré : le service ne traite que les COMPENSABLE_TOTAL.
+     *
+     * @param string[] $selection  clés « periode|parkod » des lignes cochées ([] = tout le périmètre filtré)
      */
-    public function regulariserStocks(): void
+    public function regulariserStocks(array $selection = []): void
     {
         $f = $this->filtresCourants();
 
@@ -204,11 +287,16 @@ class ListeRegularisation extends Page implements HasTable
             $f['facturerA'],
             $f['marqueIds'],
             auth()->id(),
+            $selection,
         );
 
         Notification::make()
             ->title('Régularisation lancée')
-            ->body('Le traitement tourne en arrière-plan. Une notification vous prévient à la fin.')
+            ->body(
+                $selection === []
+                    ? 'Le traitement tourne en arrière-plan. Une notification vous prévient à la fin.'
+                    : count($selection) . ' ligne(s) sélectionnée(s). Le traitement tourne en arrière-plan, une notification vous prévient à la fin.'
+            )
             ->info()
             ->send();
     }
@@ -399,33 +487,7 @@ class ListeRegularisation extends Page implements HasTable
                         Step::make('Aperçu')
                             ->description('Lignes à régulariser')
                             ->icon(Heroicon::OutlinedEye)
-                            ->schema(function (): array {
-                                $a = $this->apercuRegularisation();
-
-                                if ($a['nb'] === 0) {
-                                    return [
-                                        Text::make('Aucune ligne « Compensable total » à régulariser avec ces filtres.')
-                                            ->color('danger'),
-                                    ];
-                                }
-
-                                return [
-                                    Text::make(
-                                        "{$a['nb']} ligne(s) · quantité " . number_format($a['qte'], 0, ',', ' ')
-                                        . ' · montant à facturer ' . number_format($a['total'], 2, ',', ' ')
-                                    )->weight('semibold'),
-
-                                    View::make('filament.pages.partials.apercu-regularisation')
-                                        ->viewData([
-                                            'lignes' => $a['lignes'],
-                                            'nb'     => $a['nb'],
-                                            'limite' => self::APERCU_LIMITE,
-                                        ]),
-
-                                    Text::make('Les stocks d\'ouverture ADV / COSMA seront modifiés et les factures générées.')
-                                        ->color('gray'),
-                                ];
-                            }),
+                            ->schema(fn (): array => $this->schemaApercu()),
 
                         Step::make('Confirmation')
                             ->description('Validation finale')
@@ -451,6 +513,50 @@ class ListeRegularisation extends Page implements HasTable
                     ->color('success')
                     ->action(fn () => $this->exportExcel()),
             ])
+            // Cases à cocher : régulariser uniquement les lignes sélectionnées (toutes pages)
+            ->toolbarActions([
+                BulkAction::make('regulariser_selection')
+                    ->label('Régulariser la sélection')
+                    ->icon(Heroicon::OutlinedCheckBadge)
+                    ->color('warning')
+                    ->modalHeading('Régulariser les lignes sélectionnées')
+                    ->modalWidth(Width::SevenExtraLarge)
+                    ->modalSubmitActionLabel('Régulariser la sélection')
+                    ->schema(function (): array {
+                        $selection = $this->cleSelectionnees();
+
+                        return [
+                            ...$this->schemaApercu($selection),
+
+                            Text::make('Cette opération ne peut pas être annulée automatiquement.')
+                                ->color('danger')
+                                ->weight('semibold'),
+
+                            Checkbox::make('confirmation')
+                                ->label('Je confirme vouloir régulariser ces lignes')
+                                ->accepted()
+                                ->validationMessages([
+                                    'accepted' => 'Vous devez confirmer pour continuer.',
+                                ]),
+                        ];
+                    })
+                    ->action(function (): void {
+                        // pas de $records ici : avec ->records(), il ne contient que la page courante
+                        $selection = $this->cleSelectionnees();
+
+                        if ($selection === []) {
+                            Notification::make()
+                                ->title('Aucune ligne sélectionnée')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $this->regulariserStocks($selection);
+                    })
+                    ->deselectRecordsAfterCompletion(),
+            ])
             ->records(function (int $page, int $recordsPerPage): LengthAwarePaginator {
                 $paginator = $this->fetchRegularisation($page, $recordsPerPage);
 
@@ -464,9 +570,10 @@ class ListeRegularisation extends Page implements HasTable
                 }
 
                 // Filament attend des tableaux indexés par une clé unique
+                // (même format que Regularisation::cleLigne, utilisé par la sélection)
                 $paginator->setCollection(
                     $paginator->getCollection()->mapWithKeys(
-                        fn ($row) => [$row->periode . '|' . $row->parkod => (array) $row]
+                        fn ($row) => [Regularisation::cleLigne($row->periode, $row->parkod) => (array) $row]
                     )
                 );
 

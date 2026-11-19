@@ -32,9 +32,10 @@ class FacturesTable
                 TextColumn::make('numero')
                     ->label('N° facture')
                     ->searchable()
+                    ->badge()
+                    ->color('gray')
                     ->sortable()
-                    ->copyable()
-                    ->weight('semibold'),
+                    ->copyable(),
 
                 TextColumn::make('periode')
                     ->label('Période')
