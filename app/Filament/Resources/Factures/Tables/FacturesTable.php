@@ -168,8 +168,8 @@ class FacturesTable
                 ViewAction::make(),
 
                 // modifiable seulement tant que la facture est en brouillon
-                EditAction::make()
-                    ->visible(fn (Facture $record): bool => $record->statut === Facture::STATUT_BROUILLON),
+                /*EditAction::make()
+                    ->visible(fn (Facture $record): bool => $record->statut === Facture::STATUT_BROUILLON),*/
 
                 Action::make('pdf')
                     ->label('PDF')
