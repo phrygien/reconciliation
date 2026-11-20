@@ -2,19 +2,19 @@
     use App\Models\Facture;
     use Illuminate\Support\Str;
 
-    // ---- À ADAPTER : informations de la société émettrice -------------------
+    // ---- Informations des sociétés ------------------------------------------
     $societes = [
         'ADV' => [
-            'nom'     => 'ADV',
-            'adresse' => ['Adresse ligne 1', 'Ville, Pays'],
-            'contact' => 'Tél : +230 000 0000 · compta@adv.example',
-            'ident'   => 'BRN : C00000000 · VAT : 00000000',
+            'nom'     => 'SAS ADV',
+            'adresse' => ['28 Rue Nicéphore Niépce', '71400 Autun'],
+            'contact' => 'E-mail : finance@kalista-group.fr',
+            'ident'   => 'SIREN : 423 416 577 · SIRET : 423 416 577 00132 · TVA : FR17 423 416 577',
         ],
         'COSMA' => [
             'nom'     => 'COSMA',
-            'adresse' => ['Adresse ligne 1', 'Ville, Pays'],
-            'contact' => 'Tél : +230 000 0000 · compta@cosma.example',
-            'ident'   => 'BRN : C00000000 · VAT : 00000000',
+            'adresse' => ['17 route des Boulangers', '78530 Buc'],
+            'contact' => 'E-mail comptabilité : compta@cosma-parfumeries.fr',
+            'ident'   => 'BRN : 384 736 666 · VAT : FR26384736666',
         ],
     ];
     $devise = 'EUR';
@@ -51,82 +51,84 @@
     <meta charset="utf-8">
     <title>Facture {{ $record->numero }}</title>
     <style>
-        @page { margin: 40px 40px 80px 40px; }
+        @page { size: A4 landscape; margin: 40px 40px 80px 40px; }
 
         body {
             font-family: 'DejaVu Sans', sans-serif;
             font-size: 9.5px;
-            color: #1F2937;
+            color: #000;
+            background: #fff;
             line-height: 1.45;
         }
         table { width: 100%; border-collapse: collapse; }
         td, th { vertical-align: top; }
         .r { text-align: right; }
         .c { text-align: center; }
-        .muted { color: #6B7280; }
+        .muted { color: #555; }
         .small { font-size: 8px; }
 
         /* ---------- En-tête ---------- */
-        .titre-doc   { font-size: 24px; font-weight: bold; letter-spacing: 3px; color: #111827; margin: 0; }
-        .sous-titre  { font-size: 10px; color: #6B7280; letter-spacing: 1px; margin-top: 2px; }
-        .societe-nom { font-size: 15px; font-weight: bold; color: #111827; }
-        .barre       { height: 4px; background: #1F2937; margin: 14px 0 18px; }
+        .titre-doc   { font-size: 22px; font-weight: bold; letter-spacing: 3px; color: #000; margin: 0; }
+        .sous-titre  { font-size: 10px; color: #555; letter-spacing: 1px; margin-top: 2px; }
+        .societe-nom { font-size: 15px; font-weight: bold; color: #000; }
+        .barre       { height: 0; border-top: 1px solid #000; margin: 14px 0 18px; }
 
         /* ---------- Blocs d'information ---------- */
         .bloc {
-            border: 1px solid #D1D5DB;
-            border-top: 3px solid #1F2937;
+            border: 1px solid #000;
             padding: 8px 10px;
         }
         .bloc-titre {
             font-size: 8px; font-weight: bold; letter-spacing: 1.5px;
-            color: #6B7280; text-transform: uppercase; margin-bottom: 4px;
+            color: #000; text-transform: uppercase; margin-bottom: 4px;
         }
-        .bloc-nom { font-size: 12px; font-weight: bold; color: #111827; margin-bottom: 2px; }
+        .bloc-nom { font-size: 12px; font-weight: bold; color: #000; margin-bottom: 2px; }
 
-        .infos td { padding: 3px 0; border-bottom: 1px solid #E5E7EB; }
-        .infos td.lbl { color: #6B7280; width: 45%; }
+        .infos td { padding: 3px 0; border-bottom: 1px solid #999; }
+        .infos td.lbl { color: #555; width: 45%; }
         .infos td.val { font-weight: bold; text-align: right; }
 
         /* ---------- Lignes ---------- */
         .lignes { margin-top: 20px; }
         .lignes thead th {
-            background: #1F2937; color: #FFFFFF;
+            background: #fff; color: #000;
             font-size: 8px; letter-spacing: 0.8px; text-transform: uppercase;
-            padding: 7px 6px; text-align: left;
+            padding: 6px; text-align: left;
+            border-top: 1px solid #000; border-bottom: 1px solid #000;
         }
         .lignes thead th.r { text-align: right; }
-        .lignes tbody td { padding: 6px; border-bottom: 1px solid #E5E7EB; }
-        .lignes tbody tr.alt td { background: #F9FAFB; }
-        .parkod { font-weight: bold; color: #111827; }
-        .desc   { color: #4B5563; }
+        .lignes tbody td { padding: 6px; border-bottom: 1px solid #ccc; }
+        .lignes tbody tr:last-child td { border-bottom: 1px solid #000; }
+        .parkod { font-weight: bold; color: #000; }
+        .desc   { color: #333; }
 
         /* ---------- Totaux ---------- */
         .totaux { margin-top: 14px; }
         .totaux td { padding: 5px 8px; }
-        .totaux .lbl { color: #6B7280; text-align: right; }
+        .totaux .lbl { color: #555; text-align: right; }
         .totaux .val { text-align: right; font-weight: bold; width: 110px; }
         .totaux .grand td {
-            background: #1F2937; color: #FFFFFF;
-            font-size: 12px; font-weight: bold; padding: 9px 8px;
+            background: #fff; color: #000;
+            font-size: 12px; font-weight: bold; padding: 8px;
+            border-top: 2px solid #000; border-bottom: 2px solid #000;
         }
 
         .lettres {
             margin-top: 14px; padding: 8px 10px;
-            background: #F3F4F6; border-left: 3px solid #1F2937;
+            border: 1px solid #000;
         }
 
         /* ---------- Signatures ---------- */
         .signatures { margin-top: 34px; }
         .signature {
-            height: 70px; border: 1px solid #D1D5DB; padding: 6px 8px;
-            font-size: 8px; color: #6B7280;
+            height: 70px; border: 1px solid #000; padding: 6px 8px;
+            font-size: 8px; color: #555;
         }
 
         /* ---------- Tampon (répété sur chaque page) ---------- */
         .tampon {
             position: fixed;
-            top: 120px;
+            top: 90px;
             right: 50px;
             padding: 4px 18px;
             border: 3px double {{ $couleur }};
@@ -140,8 +142,8 @@
         /* ---------- Pied de page (répété) ---------- */
         .pied {
             position: fixed; left: 0; right: 0; bottom: -45px;
-            border-top: 1px solid #D1D5DB; padding-top: 5px;
-            font-size: 7.5px; color: #6B7280;
+            border-top: 1px solid #000; padding-top: 5px;
+            font-size: 7.5px; color: #555;
         }
         .pagenum:before { content: counter(page); }
     </style>
@@ -231,9 +233,9 @@
     <thead>
     <tr>
         <th style="width:4%">#</th>
-        <th style="width:13%">Article</th>
-        <th style="width:14%">EAN</th>
-        <th style="width:13%">Marque</th>
+        <th style="width:11%">Article</th>
+        <th style="width:13%">EAN</th>
+        <th style="width:12%">Marque</th>
         <th>Désignation</th>
         <th class="r" style="width:7%">Qté</th>
         <th class="r" style="width:10%">PAMP</th>
@@ -242,12 +244,12 @@
     </thead>
     <tbody>
     @foreach ($lignes as $i => $l)
-        <tr class="{{ $i % 2 ? 'alt' : '' }}">
+        <tr>
             <td class="muted">{{ $i + 1 }}</td>
             <td class="parkod">{{ $l->parkod }}</td>
             <td>{{ $l->article?->ean ?? '—' }}</td>
             <td>{{ $l->article?->marque?->nom ?? '—' }}</td>
-            <td class="desc">{{ Str::limit($l->article?->description ?? '—', 50) }}</td>
+            <td class="desc">{{ Str::limit($l->article?->description ?? '—', 70) }}</td>
             <td class="r">{{ $fmt($l->qte, 0) }}</td>
             <td class="r">{{ $fmt($l->pamp, 4) }}</td>
             <td class="r"><strong>{{ $fmt($l->valeur) }}</strong></td>
