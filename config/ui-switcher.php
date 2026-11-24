@@ -56,6 +56,7 @@ return [
     */
     'fonts' => [
         'B612',
+        'Jost',
         'Inter',
         'Public Sans',
         'DM Sans',

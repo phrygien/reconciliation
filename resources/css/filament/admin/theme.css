@@ -5,10 +5,6 @@
 @source '../../../../resources/views/filament';
 @source '../../../../vendor/andreia/filament-ui-switcher';
 
-/* Plugin File Manager : indispensable pour générer ses classes Tailwind */
-@source '../../../../vendor/mwguerra/filemanager/resources/views';
-@source '../../../../vendor/mwguerra/filemanager/src';
-
 /* ------------------------------------------------------------------ */
 /*  Tokens : coins carrés + police mono pour les chiffres              */
 /* ------------------------------------------------------------------ */
@@ -22,16 +18,6 @@
     --radius-3xl: 0;
 
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-
-    /* File Manager : icônes roses -> neutres (remplacer neutral par primary pour du bleu) */
-    --color-pink-50:  var(--color-neutral-50);
-    --color-pink-100: var(--color-neutral-100);
-    --color-pink-200: var(--color-neutral-200);
-    --color-pink-300: var(--color-neutral-300);
-    --color-pink-400: var(--color-neutral-400);
-    --color-pink-500: var(--color-neutral-500);
-    --color-pink-600: var(--color-neutral-600);
-    --color-pink-700: var(--color-neutral-700);
 }
 
 :root {
@@ -423,20 +409,6 @@
 }
 
 /* ------------------------------------------------------------------ */
-/*  File Manager                                                       */
-/*  Sélecteurs génériques : sans effet si le plugin n'utilise pas      */
-/*  ces classes. À affiner avec le HTML réel (DevTools) si besoin.     */
-/* ------------------------------------------------------------------ */
-[class*="fm-"] {
-    border-radius: 0;
-}
-
-[class*="fm-"] .fi-icon,
-[class*="fm-"] svg {
-    color: var(--ns-muted);
-}
-
-/* ------------------------------------------------------------------ */
 /*  Mode sombre (version sobre)                                        */
 /* ------------------------------------------------------------------ */
 .dark {
@@ -460,3 +432,6 @@
 .dark .fi-ta-group-header-cell {
     background-color: #171717;
 }
+
+@source '../../../../vendor/mmes-design/filament-file-manager/resources/views';
+@source '../../../../vendor/mmes-design/filament-file-manager/src';
