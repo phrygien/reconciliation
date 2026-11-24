@@ -6,6 +6,8 @@ use App\Filament\Resources\WinparfImportLogs\Pages\ManageWinparfImportLogs;
 use App\Models\WinparfImportLog;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\ViewEntry;
@@ -14,7 +16,9 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use ZipArchive;
 
 class WinparfImportLogResource extends Resource
@@ -98,6 +102,54 @@ class WinparfImportLogResource extends Resource
         return $found;
     }
 
+    /**
+     * Télécharge les fichiers donnés : direct si un seul, sinon dans un ZIP.
+     *
+     * @param  array<string, string>  $entries  [nom dans le ZIP => chemin relatif sur le disque]
+     */
+    protected static function downloadEntries(array $entries, string $zipName)
+    {
+        if (empty($entries)) {
+            Notification::make()
+                ->title('Fichier(s) introuvable(s)')
+                ->body('Les fichiers sélectionnés ne sont plus disponibles sur le serveur.')
+                ->danger()
+                ->send();
+
+            return null;
+        }
+
+        $disk = Storage::disk(static::$filesDisk);
+
+        // Un seul fichier : téléchargement direct
+        if (count($entries) === 1) {
+            $entryName = array_key_first($entries);
+
+            return $disk->download($entries[$entryName], basename($entryName));
+        }
+
+        // Plusieurs fichiers : archive ZIP
+        $zipPath = tempnam(sys_get_temp_dir(), 'winparf_');
+        $zip = new ZipArchive();
+
+        if ($zip->open($zipPath, ZipArchive::OVERWRITE) !== true) {
+            Notification::make()
+                ->title('Impossible de créer l\'archive ZIP')
+                ->danger()
+                ->send();
+
+            return null;
+        }
+
+        foreach ($entries as $entryName => $path) {
+            $zip->addFile($disk->path($path), $entryName);
+        }
+
+        $zip->close();
+
+        return response()->download($zipPath, $zipName)->deleteFileAfterSend();
+    }
+
     public static function downloadAction(): Action
     {
         return Action::make('download')
@@ -106,49 +158,36 @@ class WinparfImportLogResource extends Resource
             ->color('gray')
             ->visible(fn (WinparfImportLog $record): bool => filled($record->files))
             ->action(function (WinparfImportLog $record) {
-                $files = static::existingFiles($record);
+                return static::downloadEntries(
+                    static::existingFiles($record),
+                    'winparf-import-' . $record->getKey() . '.zip',
+                );
+            });
+    }
 
-                if (empty($files)) {
-                    Notification::make()
-                        ->title('Fichier(s) introuvable(s)')
-                        ->body('Les fichiers de cet import ne sont plus disponibles sur le serveur.')
-                        ->danger()
-                        ->send();
+    public static function bulkDownloadAction(): BulkAction
+    {
+        return BulkAction::make('bulkDownload')
+            ->label('Télécharger la sélection')
+            ->icon('heroicon-o-arrow-down-tray')
+            ->color('gray')
+            ->deselectRecordsAfterCompletion()
+            ->action(function (Collection $records) {
+                $entries = [];
 
-                    return null;
+                foreach ($records as $record) {
+                    foreach (static::existingFiles($record) as $path) {
+                        // Clé = "processed/NOM.TXT" : évite les collisions entre
+                        // failed/processed et dédoublonne si le même fichier
+                        // apparaît dans plusieurs logs.
+                        $entries[Str::after($path, static::$filesDirectory . '/')] = $path;
+                    }
                 }
 
-                $disk = Storage::disk(static::$filesDisk);
-
-                // Un seul fichier : téléchargement direct
-                if (count($files) === 1) {
-                    $name = array_key_first($files);
-
-                    return $disk->download($files[$name], $name);
-                }
-
-                // Plusieurs fichiers : archive ZIP
-                $zipPath = tempnam(sys_get_temp_dir(), 'winparf_');
-                $zip = new ZipArchive();
-
-                if ($zip->open($zipPath, ZipArchive::OVERWRITE) !== true) {
-                    Notification::make()
-                        ->title('Impossible de créer l\'archive ZIP')
-                        ->danger()
-                        ->send();
-
-                    return null;
-                }
-
-                foreach ($files as $name => $path) {
-                    $zip->addFile($disk->path($path), $name);
-                }
-
-                $zip->close();
-
-                $zipName = 'winparf-import-' . $record->getKey() . '.zip';
-
-                return response()->download($zipPath, $zipName)->deleteFileAfterSend();
+                return static::downloadEntries(
+                    $entries,
+                    'winparf-imports-' . now()->format('Ymd_His') . '.zip',
+                );
             });
     }
 
@@ -208,6 +247,11 @@ class WinparfImportLogResource extends Resource
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Fermer'),
                 static::downloadAction(),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    static::bulkDownloadAction(),
+                ]),
             ]);
     }
 
