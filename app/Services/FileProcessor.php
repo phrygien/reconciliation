@@ -20,12 +20,19 @@ use Exception;
 
 class FileProcessor
 {
+    private ?Regularisation $regularisateur = null;
+
     /**
      * Create a new class instance.
      */
     public function __construct()
     {
         //
+    }
+
+    private function regularisateur(): Regularisation
+    {
+        return $this->regularisateur ??= new Regularisation($this);
     }
 
     // --------------------- //
@@ -42,6 +49,13 @@ class FileProcessor
             Log::channel('stderr')->info($periode->periode . " < " . $annee_mois); 
             $this->cloturerPeriode($periode);
             $this->ouvrirPeriode($annee_mois, $periode->periode);
+
+            // regularisation auto du stock et generation des la facture
+            Log::channel('stderr')->info("Appel régularisation pour {$annee_mois}");
+            $bilan_adv = $this->regularisateur()->regulariserLeStocks($annee_mois, $this->regularisateur::FACTURER_A_ADV);
+            Log::channel('stderr')->info('Bilan ADV', $bilan_adv);
+            $bilan_cosma = $this->regularisateur()->regulariserLeStocks($annee_mois, $this->regularisateur::FACTURER_A_COSMA);
+            Log::channel('stderr')->info('Bilan ADV', $bilan_cosma);   
         }
 
         //---------------------------//

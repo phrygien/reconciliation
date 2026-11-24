@@ -472,6 +472,9 @@ class Regularisation
                 $s->save();
             }
 
+            //regularisation log
+            Log::channel('stderr')->info('regularisation : '. $parkod . " - " . $periode);
+
             // recalcul du stock mensuel de la période corrigée
             $this->processor->recalculerStockMensuel($parkod, $periode, self::FACTURER_A_ADV);
             $this->processor->recalculerStockMensuel($parkod, $periode, self::FACTURER_A_COSMA);
