@@ -153,7 +153,6 @@ class WinparfImportLogResource extends Resource
     public static function downloadAction(): Action
     {
         return Action::make('download')
-            ->label('Télécharger')
             ->icon('heroicon-o-arrow-down-tray')
             ->color('gray')
             ->visible(fn (WinparfImportLog $record): bool => filled($record->files))
