@@ -30,12 +30,12 @@ class WinparfImportLogResource extends Resource
     protected static ?string $pluralModelLabel = 'imports Winparf';
 
     /**
-     * Disque et dossier où sont stockés les fichiers importés.
-     * À adapter selon votre configuration.
+     * Disque "local" = storage/app/private (Laravel 11+).
+     * Dossier racine : storage/app/private/depot_winparf
      */
     protected static string $filesDisk = 'local';
 
-    protected static string $filesDirectory = 'winparf';
+    protected static string $filesDirectory = 'depot_winparf';
 
     public static function canCreate(): bool
     {
@@ -57,6 +57,22 @@ class WinparfImportLogResource extends Resource
     }
 
     /**
+     * Sous-dossiers à parcourir, le plus probable en premier selon le statut.
+     *
+     * @return array<int, string>
+     */
+    protected static function foldersFor(WinparfImportLog $record): array
+    {
+        $primary = match ($record->status) {
+            'running' => 'init',
+            'success' => 'processed',
+            default => 'failed',
+        };
+
+        return array_values(array_unique([$primary, 'processed', 'failed', 'init']));
+    }
+
+    /**
      * Fichiers réellement présents sur le disque : [nom => chemin relatif].
      *
      * @return array<string, string>
@@ -64,13 +80,18 @@ class WinparfImportLogResource extends Resource
     protected static function existingFiles(WinparfImportLog $record): array
     {
         $disk = Storage::disk(static::$filesDisk);
+        $folders = static::foldersFor($record);
         $found = [];
 
         foreach (static::fileNames($record) as $name) {
-            $path = trim(static::$filesDirectory . '/' . $name, '/');
+            foreach ($folders as $folder) {
+                $path = static::$filesDirectory . '/' . $folder . '/' . $name;
 
-            if ($disk->exists($path)) {
-                $found[$name] = $path;
+                if ($disk->exists($path)) {
+                    $found[$name] = $path;
+
+                    break;
+                }
             }
         }
 
